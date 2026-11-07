@@ -1,0 +1,16 @@
+.env
+.venv/
+.uv-cache/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+jobs/
+media/
+models/
+sources.json
+*.mp4
+*.wav
+*.srt
+*.zip
+*.sqlite*
