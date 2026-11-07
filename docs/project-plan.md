@@ -71,8 +71,9 @@ A 与 C 从片头、中段和片尾共抽 20 段盲评，F 统一准备匿名样
 
 ## 6. 项目管理与排期
 
-- **仓库**为私有的 `english-video-localizer`。`project/` 是本地仓库根目录。组员加入后在对应 Issue 认领任务，按模块建功能分支，通过 PR 合并到 `main`。每个 PR 至少一名队友审核，接口变更由 F 与受影响模块负责人共同审核。
-- **进度**在 Issue 里更新。开工标记 `status: in progress`，卡住标记 `status: blocked` 并写明需要谁解决。每条任务用 PR、可运行命令、日志或评测结果作为完成证据。
+- **仓库**为私有的 `english-video-localizer`。`project/` 是本地仓库根目录。全员在各自的本地 `main` 开发，共用远端 `origin/main`。接口变更由 F 与受影响模块负责人共同核对。
+- **同步顺序**为先提交本地修改，再运行 `git pull --rebase origin main`。如果有冲突，编辑相关文件，运行 `git add <文件>` 和 `git rebase --continue`，完成后执行 `git push origin main`。如果推送期间有队友先提交了改动，再拉取并重新推送。
+- **进度**在 Issue 里更新。开工标记 `status: in progress`，卡住标记 `status: blocked` 并写明需要谁解决。每条任务用提交链接、可运行命令、日志或评测结果作为完成证据。
 - **材料**只提交源码、锁文件、测试与文档。密钥、模型权重、原始素材、检查点和成片留在本地或团队授权空间。G 负责收集发布用的正式材料。
 
 | 时间 | 团队动作 |
