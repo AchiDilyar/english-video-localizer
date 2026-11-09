@@ -1,0 +1,37 @@
+{
+  "schema_version": "0.1-draft",
+  "asset_id": "synthetic_demo_001",
+  "transcript_revision": "r0001",
+  "mode": "mock",
+  "language": "en",
+  "duration_ms": 125000,
+  "source": {
+    "kind": "synthetic",
+    "content_sha256": null,
+    "manifest_ref": null
+  },
+  "audio": null,
+  "provenance": {
+    "asr_backend": "manual_fixture",
+    "asr_model_revision": null,
+    "diarization_backend": "manual_fixture",
+    "diarization_model_revision": null,
+    "parameters_ref": null
+  },
+  "speakers": [
+    {"speaker_id": "SPEAKER_00", "label_method": "synthetic"},
+    {"speaker_id": "SPEAKER_01", "label_method": "synthetic"}
+  ],
+  "segments": [
+    {"segment_id": "seg_000001", "speaker_id": "SPEAKER_00", "start_ms": 1000, "end_ms": 5000, "en": "This is an artificial integration example.", "words": null},
+    {"segment_id": "seg_000002", "speaker_id": "SPEAKER_01", "start_ms": 7000, "end_ms": 11000, "en": "We keep the original video timeline.", "words": null},
+    {"segment_id": "seg_000003", "speaker_id": "SPEAKER_00", "start_ms": 57000, "end_ms": 63000, "en": "The long gaps here are intentional test data.", "words": null},
+    {"segment_id": "seg_000004", "speaker_id": "SPEAKER_01", "start_ms": 65000, "end_ms": 70000, "en": "Context is a reference and must not be rendered twice.", "words": null},
+    {"segment_id": "seg_000005", "speaker_id": "SPEAKER_00", "start_ms": 118000, "end_ms": 124000, "en": "This fixture is not a speech recognition result.", "words": null}
+  ],
+  "chunks": [
+    {"chunk_id": "chunk_000001", "segment_ids": ["seg_000001", "seg_000002", "seg_000003"], "context_before_ids": []},
+    {"chunk_id": "chunk_000002", "segment_ids": ["seg_000004", "seg_000005"], "context_before_ids": ["seg_000002", "seg_000003"]}
+  ],
+  "issues": []
+}

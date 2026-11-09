@@ -1,5 +1,7 @@
 .env
 .venv/
+.venv-community1/
+.venv-community1-gpu/
 .uv-cache/
 __pycache__/
 .pytest_cache/
@@ -15,3 +17,7 @@ sources.json
 *.srt
 *.zip
 *.sqlite*
+/tmp/pdfs/
+/.tools/
+/tmp/b-media-check/
+/tmp/b-pipeline-tests/
