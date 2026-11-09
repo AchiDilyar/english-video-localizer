@@ -1,7 +1,7 @@
 # 团队协作约定
 
-版本：v1.0  
-最后更新：2026-11-08
+版本：v1.1.0
+最后更新：2026-11-09
 
 ---
 
@@ -34,9 +34,54 @@
 4. F 将改动告知所有受影响的角色。
 5. 其它角色不可擅自修改 `docs/design/` 下的 `workflow.md`、`dataflow.md`、`architecture.md` 和 `collaboration.md`。
 
+## 5. design目录下文档版本管理
+
+### 5.1 版本管理
+
+四份文档（`workflow.md`、`dataflow.md`、`architecture.md`、`collaboration.md`）头部显示同一版本号。每次修改必须同步更新四份文档的头部版本号至最新编号。
+
+版本号变更规则：
+- major（1.x -> 2.0）：不兼容的约定变更。如节点签名改变、事实源范围重划、产物名批量改名、文档集结构调整。
+- minor（1.0 -> 1.1）：向后兼容的规则/章节增加。如新增产物、新增规则、新增章节。
+- patch（1.0.0 -> 1.0.1）：措辞修正、笔误、格式调整、示例更新，不改变任何规则语义。
+
+### 5.2 变更记录位置
+
+四份文档（`workflow.md`、`dataflow.md`、`architecture.md`、`collaboration.md`）的变更统一记录在：
+
+```text
+docs/design/CHANGELOG.md
+```
+
+四份文档不单独维护变更记录。`CHANGELOG.md` 按 5.3 节的格式书写。
+
+### 5.3 变更记录格式
+
+每条记录包含以下内容：
+- 标题：修改日期 + github 提交的标题
+- 版本变更：格式为 `旧版本` -> `新版本`
+- 涉及的文档
+- 修改内容
+- 修改原因
+
+示例：
+
+```markdown
+## 2026-11-09 refactor(contracts): GraphState 改为 Pydantic 模型
+### 版本变更
+`v1.0` -> `v1.0.1`
+### 涉及文档
+- `dataflow.md`
+- `architecture.md`
+### 修改内容
+- `GraphState` 从 `TypedDict` 改为 Pydantic `BaseModel`
+### 修改原因
+- 统一 `contracts/` 与 `utils/io.py` 的类型体系，使 `GraphState` 可被 Pydantic 校验、可被 `read_artifact`/`write_artifact` 直接处理，消除未来落盘/检查点时的嵌套模型退化风险。
+```
+
 ---
 
-## 5. 项目文档的职责
+## 6. 项目文档的职责
 
 1. 项目文档不规定格式和内容。
 2. 项目文档应完成的职责：

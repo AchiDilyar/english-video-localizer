@@ -75,10 +75,8 @@
 
 ## TTSClip
 
-逐段中文口播音频记录，由 tts_align 生成。
-
-    音频文件落盘于 tts/ 下，完整路径通过
-    artifact_path("tts_clips", filename) 获取；audio_path 只保存文件名。
+音频文件落盘于 tts/ 下，完整路径通过 artifact_path("tts_audio", filename) 获取；audio_path 只保存文件名。
+    本数据类的结构化清单落盘为 tts/clips.json，产物名 tts_clips。
 
 | 字段 | 类型 | 必填 | 约束/说明 |
 |---|---|---|---|

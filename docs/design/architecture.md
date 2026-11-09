@@ -1,6 +1,6 @@
 # 项目代码架构设计
 
-版本：v1.0.1
+版本：v1.1.0
 最后更新：2026-11-09
 
 ---
@@ -17,8 +17,7 @@
 - 配置加载机制；
 - 通用函数接口；
 - CLI 入口与出口；
-- 节点失败基本行为；
-- 文档变更记录规范。
+- 节点失败基本行为。
 
 ### 1.2 本文档是以下内容的唯一事实源
 
@@ -31,10 +30,9 @@
 | 节点注册方式 | 第 3 节 节点函数签名与注册 | F 在 `graph/` 中导入并注册 |
 | 模拟与真实节点切换机制 | 第 4 节 模拟与真实节点切换 | 切换位置、模拟实现位置、函数签名一致性、`config/mock.toml` 的键与含义 |
 | 配置加载机制 | 第 5 节 配置加载机制 | 配置文件位置、`load_config()` 入口、配置格式、F 与模块的边界 |
-| 通用函数接口 | 第 6 节 通用函数接口 | 路径函数、读写函数、配置加载函数的签名与职责 |
+| 通用函数接口 | 第 6 节 通用函数接口 | 路径函数、读写函数、配置加载函数的签名与职责；产物规格表 |
 | CLI 入口与出口 | 第 7 节 CLI 入口与出口 | 命令形式、参数、默认值、工作目录与输入视频必须存在、输出格式、退出码 |
 | 节点失败基本行为 | 第 8 节 节点失败基本行为 | 异常抛出、图终止、CLI 非零退出 |
-| 文档变更记录规范 | 第 9 节 文档变更记录规范 | `CHANGELOG.md` 格式 |
 
 ### 1.3 文档引用约定
 
@@ -57,6 +55,7 @@ english-video-localizer/
       workflow.md
       dataflow.md
       architecture.md
+      collaboration.md
       CHANGELOG.md
     contracts/      # interfaces.md，从 Pydantic 自动生成
     nodes/          # 各节点模块的补充文档，子目录以节点名命名
@@ -76,6 +75,7 @@ project/
   nodes/                    # 节点模块
   mocks/                    # 模拟节点
   utils/                    # 通用函数
+    artifacts.py
     paths.py
     io.py
     config.py
@@ -90,8 +90,9 @@ project/
 | `contracts/` | Pydantic 模型，字段、类型、必填性与约束的唯一事实源 |
 | `nodes/` | 节点模块，每个节点一个模块，模块名与节点名一致，导出主函数 |
 | `mocks/` | 模拟节点，每个节点一个模块，模块名与节点名一致，导出主函数 |
-| `utils/paths.py` | 名称映射与绝对路径生成 |
-| `utils/io.py` | 结构化数据读写与 Pydantic 校验 |
+| `utils/artifacts.py` | 产物规格表：名称到路径规则与校验类型的唯一代码实现；事实源为 `dataflow.md` 第 3 节产物表 |
+| `utils/paths.py` | 绝对路径生成；路径规则从 `utils/artifacts.py` 的产物规格表获取 |
+| `utils/io.py` | 结构化数据读写与 Pydantic 校验；校验类型从 `utils/artifacts.py` 的产物规格表获取 |
 | `utils/config.py` | 配置加载入口 |
 | `config/` | 配置文件存放位置，具体文件由各模块自行定义和解析；`config/mock.toml` 由 F 维护 |
 
@@ -219,7 +220,8 @@ def artifact_path(
 
     - 路径确定的产物：filename 为 None，返回完整绝对路径。
     - 路径不确定的产物：filename 必须提供，返回名称对应文件夹下的文件绝对路径。
-    - 名称必须存在于名称映射表中，否则抛出异常。
+    - 路径规则从产物规格表（`utils/artifacts.py`）按名称获取，事实源为 `dataflow.md` 第 3 节产物表。
+    - 名称必须存在于产物规格表中，否则抛出异常。
     """
 ```
 
@@ -228,10 +230,14 @@ def artifact_path(
 ```python
 def read_artifact(
     name: str,
-    model: type[BaseModel],
     filename: str | None = None,
 ):
-    """按名称读取 JSON 产物，并按 model 校验后返回模型实例。"""
+    """按名称读取 JSON 产物，按产物规格表登记的校验类型做 Pydantic 校验后返回。
+
+    - 校验类型从产物规格表（`utils/artifacts.py`）按名称获取，事实源为 `dataflow.md` 第 3 节产物表。
+    - 返回类型由名称决定
+    - 名称未登记，或该产物的校验类型为 None（二进制产物）时抛出异常。
+    """
 
 
 def write_artifact(
@@ -239,7 +245,12 @@ def write_artifact(
     obj,
     filename: str | None = None,
 ) -> None:
-    """按名称写入 JSON 产物，写入前做 Pydantic 校验。"""
+    """按名称写入 JSON 产物，写入前按产物规格表登记的校验类型做 Pydantic 校验。
+
+    - `obj` 可以是模型实例，也可以是裸 dict / list；校验后统一转化为模型实例再序列化。
+    - 写入磁盘 JSON 必须为通过校验的合法结构。
+    - 名称未登记，或该产物的校验类型为 None（二进制产物）时抛出异常。
+    """
 ```
 
 ### 6.3 `utils/config.py`
@@ -249,19 +260,17 @@ def load_config(filename: str) -> dict:
     """从 config/ 目录加载指定 TOML 配置文件，返回 dict，不做 schema 校验。"""
 ```
 
-### 6.4 名称映射表
+### 6.4 产物规格表
 
-- `utils/paths.py` 内部维护名称映射表，内容与 `dataflow.md` 第 3 节产物表一致；
-- 路径确定的产物映射为完整相对路径；
-- 路径不确定的产物映射为所在文件夹，文件名由调用方提供；
-- `dataflow.md` 第 3 节产物表是名称和相对路径的事实源，`utils/paths.py` 是代码实现，两者不一致时以 `dataflow.md` 为准。
+- `utils/artifacts.py` 内部维护产物规格表，内容与 `dataflow.md` 第 3 节产物表一致；规格表是 `utils/paths.py` 与 `utils/io.py` 的共同数据源，两者不各自维护映射表，也不接收调用方传入的类型参数；
+- 每个名称映射到路径规则与校验类型：路径规则分三种（完整相对路径 / 文件夹 + filename / 根目录 + filename）；校验类型为落盘 JSON 的 Pydantic 类型，落盘为二进制文件的产物为 None。校验类型描述磁盘 JSON 的类型，与 `GraphState` 字段类型无关；
+- 名称与磁盘格式一一对应的约束见 `dataflow.md`的`5.1`节；`dataflow.md` 第 3 节产物表是名称、路径与校验类型的事实源，`utils/artifacts.py` 是代码实现，两者不一致时以 `dataflow.md` 为准。
 
 ### 6.5 使用约束
 
 - 节点通过 `artifact_path` 获取路径，不直接拼接路径字符串；
-- 结构化落盘对象通过 `read_artifact` / `write_artifact` 读写，不自行 JSON 序列化；
-- 输入视频的文件名保存在 `GraphState` 中，节点通过 `artifact_path` 和文件名获取绝对路径；
-- 二进制媒体产物通过 `artifact_path` 获取路径，交给对应工具处理。
+- 落盘为单个 JSON 文件的结构化产物，必须通过 `read_artifact` / `write_artifact` 读写，函数内部按产物规格表完成 Pydantic 校验；节点不自行 JSON 序列化，也不接收或传入校验类型参数；
+- 落盘为二进制文件的产物，不可调用 `read_artifact` / `write_artifact`（函数会因校验类型为 None 抛异常），必须通过 `artifact_path` 获取绝对路径，交给对应第三方工具（FFmpeg、TTS 工具等）处理。
 
 ---
 
@@ -303,31 +312,3 @@ run-input [--work-dir PATH] [--input FILENAME]
 3. CLI 捕获异常，打印错误摘要，返回非零退出码；
 4. 节点不要求写重试、降级、退回、日志文件；
 5. 测试和日志的目标是保证模块可以正常运行、出问题能够快速排查，对格式和内容不做强制要求。
-
----
-
-## 9. 文档变更记录规范
-
-### 9.1 变更记录位置
-
-四份设计文档（`workflow.md`、`dataflow.md`、`architecture.md`、`collboration.md`）的变更统一记录在：
-
-```text
-docs/design/CHANGELOG.md
-```
-
-三份文档不单独维护变更记录。
-
-### 9.2 记录格式
-
-每条记录至少包含：版本号、修改时间、修改内容、修改原因。
-
-示例：
-
-```markdown
-## architecture.md v1.0.1  2026-11-08
-### 修改内容
-- `dataflow.md`：输入视频在 `GraphState` 中只保存文件名，不保存完整路径
-### 修改原因
-- 与“固定路径不进入 State”原则保持一致，完整路径由 utils 生成
-```

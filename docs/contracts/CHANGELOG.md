@@ -13,3 +13,17 @@
 - 统一 `contracts/` 与 `utils/io.py` 的类型体系，使 `GraphState` 可被 Pydantic 校验、可被 `read_artifact`/`write_artifact` 直接处理，消除未来落盘/检查点时的嵌套模型退化风险。
 ### 修改影响
 - 节点内 State 访问由下标改属性、缺失判断由 `in` 改 `is not None`
+
+## v1.0.2 2026-11-09
+
+### 修改内容
+
+- `tts.py` 中`TTSClip`类的文档说明。不修改其实际字段。
+
+### 修改原因
+
+- 修正`tts_clips`承载了两种磁盘形态的问题。
+
+### 修改影响
+
+- 重新生成`interface.md`，对`TTSClip`类本身没有影响。
