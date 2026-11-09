@@ -1,0 +1,128 @@
+import copy
+import json
+from pathlib import Path
+from types import SimpleNamespace
+import wave
+
+import pytest
+from langgraph.graph import END, START, StateGraph
+
+from contracts import GraphState, Segment
+from nodes.asr_diarize import asr_diarize
+from nodes.asr_diarize import node
+from nodes.probe_input import probe_input, media
+from nodes.probe_input import integration
+
+
+def turns():
+    # The first sentence has a small boundary intrusion; its main speaker still wins.
+    return {"speaker_ids": ["voice-A", "voice-B"], "metadata": {}, "turns": [
+        {"start_ms": 0, "end_ms": 650, "speaker_id": "voice-A"},
+        {"start_ms": 650, "end_ms": 1300, "speaker_id": "voice-B"},
+        {"start_ms": 1400, "end_ms": 1900, "speaker_id": "voice-A"},
+    ]}
+
+
+def test_final_ids_and_speakers_preserve_text_and_timing(sentence_table):
+    from nodes.asr_diarize.pipeline.diarization import assign_speakers
+
+    original = copy.deepcopy(sentence_table)
+    segments = node.to_segments(assign_speakers(sentence_table, turns()))
+    assert [s.segment_id for s in segments] == ["seg_0001", "seg_0002", "seg_0003"]
+    assert [s.speaker_id for s in segments] == ["spk_1", "spk_2", "spk_1"]
+    assert [(s.start_ms, s.end_ms, s.text_en) for s in segments] == [
+        (r["start_ms"], r["end_ms"], r["en"]) for r in original["sentences"]
+    ]
+    assert sentence_table == original
+    assert set(segments[0].model_dump()) == {"segment_id", "speaker_id", "start_ms", "end_ms", "text_en"}
+
+
+@pytest.mark.parametrize("kind", ["unknown", "untimed", "overlap", "empty"])
+def test_unusable_handoff_is_rejected(sentence_table, kind):
+    for row in sentence_table["sentences"]:
+        row["speaker_id"] = "voice-A"
+    if kind == "unknown":
+        sentence_table["sentences"][0]["speaker_id"] = None
+    elif kind == "untimed":
+        sentence_table["review"]["untimed_utterances"] = [{"en": "Unaligned phrase."}]
+    elif kind == "overlap":
+        sentence_table["sentences"][1]["start_ms"] = 500
+    else:
+        sentence_table["sentences"] = []
+    with pytest.raises(ValueError):
+        node.to_segments(sentence_table)
+
+
+@pytest.fixture
+def real_video(shared_services):
+    work, _, _ = shared_services
+    try:
+        ffmpeg = media.tool_path("ffmpeg")
+        media.tool_path("ffprobe")
+    except media.MediaError as exc:
+        pytest.skip(str(exc))
+    media.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
+               "-f", "lavfi", "-i", "color=c=black:s=160x120:r=25:d=2",
+               "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000:duration=2",
+               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(work / "input.mp4")])
+    return work
+
+
+def test_real_media_two_node_langgraph_uses_shared_contract(
+    shared_services, real_video, sentence_table, monkeypatch
+):
+    work, calls, _ = shared_services
+    monkeypatch.setattr(node, "recognize", lambda *args: copy.deepcopy(sentence_table))
+    monkeypatch.setattr(node, "run_diarization", lambda *args: turns())
+    graph = StateGraph(GraphState)
+    graph.add_node("probe_input", probe_input)
+    graph.add_node("asr_diarize", asr_diarize)
+    graph.add_edge(START, "probe_input")
+    graph.add_edge("probe_input", "asr_diarize")
+    graph.add_edge("asr_diarize", END)
+    result = GraphState.model_validate(graph.compile().invoke(GraphState(input_video="input.mp4")))
+    assert result.media_info.duration_ms == 2000
+    assert all(isinstance(s, Segment) for s in result.segments)
+    assert len(calls["writes"]) == 1
+    saved = json.loads((work / "segments/segments.json").read_text())
+    assert saved == [s.model_dump() for s in result.segments]
+    fixed = Path(__file__).resolve().parents[2] / "data/asr_diarize/segments.json"
+    assert saved == json.loads(fixed.read_text())
+    with wave.open(str(work / "audio/source.wav")) as audio:
+        assert (audio.getframerate(), audio.getnchannels(), audio.getnframes()) == (16000, 1, 32000)
+    assert {p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file()} == {
+        "input.mp4", "audio/source.wav", "segments/segments.json"
+    }
+
+
+def test_write_failure_is_propagated_without_success_delta(
+    real_video, sentence_table, monkeypatch
+):
+    monkeypatch.setattr(node, "recognize", lambda *args: copy.deepcopy(sentence_table))
+    monkeypatch.setattr(node, "run_diarization", lambda *args: turns())
+
+    def fail(*args):
+        raise OSError("test disk failure")
+
+    monkeypatch.setattr(integration, "write_artifact", fail)
+    state = GraphState(input_video="input.mp4")
+    with pytest.raises(OSError, match="test disk failure"):
+        asr_diarize(state)
+    assert state.segments is None
+    assert not (real_video / "segments/segments.json").exists()
+
+
+def test_unknown_speaker_stops_before_writing(real_video, sentence_table, monkeypatch):
+    monkeypatch.setattr(node, "recognize", lambda *args: copy.deepcopy(sentence_table))
+    monkeypatch.setattr(node, "run_diarization", lambda *args: {**turns(), "turns": []})
+    with pytest.raises(ValueError, match="UNRESOLVED_SPEAKER"):
+        asr_diarize(GraphState(input_video="input.mp4"))
+    assert not (real_video / "segments/segments.json").exists()
+
+
+def test_worker_failure_has_no_silent_fallback(monkeypatch, tmp_path):
+    import subprocess
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stderr="test worker failure"))
+    with pytest.raises(RuntimeError, match="test worker failure"):
+        node.run_diarization(tmp_path / "source.wav", 1000, node.ASROptions())
