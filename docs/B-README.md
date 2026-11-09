@@ -58,4 +58,6 @@ Community-1 当前通过 worker 运行再导入，**不是 CLI `--diarize` 的�
 
 ## 验收边界
 
+2026-11-09 提交检查：本机 `unittest discover` 的 78 项全部通过，实测 4.932 秒。同步远端后，用 `git archive HEAD` 导出仅含已跟踪文件的副本，执行同一测试：78 项中 77 项通过、1 项跳过，实测 2.860 秒。跳过项读取未随仓库分发的历史真实 DeepSeek 响应；未重新调用 API。副本无 `media/`、`models/`，但复用已安装的 Python 3.12 依赖和本机 FFmpeg；因此证明测试不依赖下载样片，不代表全新机器安装或 Python 3.11 已验证。CLI 帮助和 Git 差异格式检查通过。日志分别在本地 `jobs/B-handoff-tests-20261109.log`、`jobs/B-handoff-clean-export-tests-20261109.log`，不上传运行目录。
+
 实际长片跑通和时间结构检查通过，不代表英文/人物全部人工验收。没有 D 音色联合验收、全片人工标注或 DER。DeepSeek 仅此前一次公开台词小样调用，本次整理与提交没有新调用。
