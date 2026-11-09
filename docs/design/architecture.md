@@ -1,6 +1,6 @@
 # 项目代码架构设计
 
-版本：v1.2.0
+版本：v1.2.1
 最后更新：2026-11-09
 
 ---
@@ -66,6 +66,7 @@ english-video-localizer/
     nodes/          # 各节点模块的补充文档，子目录以节点名命名
     graph/          # 图构建模块的补充文档
     cli/            # CLI 模块的补充文档
+    utils/          # utils 模块的补充文档
   config/           # 配置文件
   pyproject.toml    # 依赖与项目元信息
 ```

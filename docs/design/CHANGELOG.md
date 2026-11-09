@@ -113,3 +113,36 @@
 ### 修改原因
 - 原 `architecture.md` 未规定测试与日志的存放位置；`workflow.md`中"不包含测试体系"被误读为"不写测试或日志"，实际空档是"没有存放规范"。
 - 补"组织规范"而非"强制体系"：只回答"如果有，放哪里、如何分类"，对测试内容与形式无要求；日志统一一个文件，靠 `%(name)s` 与级别区分。
+
+## 2026-11-09 docs(architecture): 新增测试与日志组织规范
+
+### 版本变更
+`v1.1.0` -> `v1.2.0`
+
+### 涉及文档
+- `architecture.md`
+- `dataflow.md`
+
+### 修改内容
+- `architecture.md` §9：新增测试与日志组织规范。测试代码位于顶层 `tests/`、结构镜像 `project/`，通过 `python -m pytest` 运行；日志统一写入 `work_dir/logs/run.log`，`logger` 使用 `__name__`。不强制每模块提供测试或日志。
+- `architecture.md` 明确"不做完整测试体系"不强制每模块提供测试或日志。
+- `architecture.md` 补充测试与日志组织为事实源；顶层目录新增 `tests/`；职责表新增 `tests/`、`utils/log.py`。
+- `dataflow.md` 工作目录结构新增 `logs/run.log`，说明为运行副产品、非产物。
+
+### 修改原因
+- 原 `architecture.md` 未规定测试与日志的存放位置；`workflow.md`中"不包含测试体系"被误读为"不写测试或日志"，实际空档是"没有存放规范"。
+- 补"组织规范"而非"强制体系"：只回答"如果有，放哪里、如何分类"，对测试内容与形式无要求；日志统一一个文件，靠 `%(name)s` 与级别区分。
+
+## 2026-11-09 feat(utils): 按产物规格表实现 paths/io
+
+### 版本变更
+`v1.2.0` -> `v1.2.1`
+
+### 涉及文档
+- `architecture.md`
+
+### 修改内容
+- `architecture.md` 第2.1节：`docs/` 目录树新增 `utils/`，与已有 `nodes/`、`graph/`、`cli/` 并列，存放 utils 模块的补充文档。
+
+### 修改原因
+- utils 模块已有实现文档（`docs/utils/README.md`），需在目录结构事实源中登记其位置，与其它模块的补充文档保持一致。
