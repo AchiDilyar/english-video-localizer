@@ -30,6 +30,8 @@
 4. 仓库仍有 src/video_localizer 历史示例，pyproject 的打包目标仍是该包；统一到 project 架构的安装/运行方式需由 F 协调，不在本次擅自迁移其他组内容。
 5. 本机 B 测试为 Python 3.12；团队 Python 3.11 下完整依赖与运行仍待验证。未知说话人语义、C/D/F 联调以及人工英文/人物核对也未验收。
 
+同步时队友新增 06f2c13（含 E 文件交接与 WebUI 原型）。project/e_handoff.py 尚未拆成 workflow 中的 E 节点，web/ 与独立服务入口也不属于 v1.2.0 基本版主流程；需 F/E 后续协调归并。本次仅修复其依赖 B 旧路径的导入，不擅自重构其他组业务或将其当作已经符合标准的主图。
+
 因此此前“已按要求整理并提供节点入口”可以成立；若理解为“整个团队项目已严格全部满足规范、下载源码即可跑完”，则不成立。
 
 ## 本次验证
@@ -38,3 +40,11 @@
 - 显式启用单项真实 ASR 测试：1 项通过，3.35 秒；读取已有授权访谈的 16 秒本地音频，验证新内存算法连接；不重跑整片。Community-1 的模型和 stdout 协议未改变，本次只模拟验证新增日志转发，没有重复真实模型运行。
 - 首次完整 pytest 因 tests/tmp 中旧源码副本被误收集而失败，修正 collect_ignore 后通过；失败日志保留在 tests/tmp/B-design-audit-20261109.log，成功日志为 B-design-audit-20261109-02.log、B-design-audit-real-ASR.log。
 - 既有 80 分钟结果和历史任务未修改；本次未新下载媒体/模型、未调用 DeepSeek 或付费 API，未上传凭据、模型或测试大文件。
+
+## 同步队友提交后的补充验证
+
+- 新 E 测试最初因独立 B 环境未装团队已有的 imageio-ffmpeg 而无法收集。已安装 pyproject 中原有的 imageio-ffmpeg、Pillow 开发/运行依赖，没有更改共享依赖声明或锁文件。
+- E 模块与测试仍引用已迁移的 tools.b_media。改为 nodes.probe_input.media，并统一为以 project 为根的 contracts / e_handoff 导入；未改变 E 的数据转换和媒体业务逻辑。
+- E 的字幕断言将 Windows CRLF 归一为 LF 后检查内容与时间，不改变实际字幕。此前运行 97 通过、1 因换行差异失败，修正后 E 单测通过。
+- 修正 E 文档中过期的 B 路径/链接，明确原型消费历史任务，记录源码运行需要的模块搜索路径；没有把 E 的 spk_unknown 原型规则当作 F/D 已确认的共享规则。
+- 最终同步后的全仓库 `python -m pytest tests -q`：**98 通过、2 默认跳过、11 子测试通过，5.65 秒**；日志 tests/tmp/B-audit-after-team-sync-final.log。源码环境下 E 命令帮助检查通过。新 E 单测实际验证合成媒体到预览 ZIP，不代表真实译文、真实配音或团队全流程验收。

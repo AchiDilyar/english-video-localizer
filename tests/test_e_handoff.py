@@ -7,9 +7,9 @@ from zipfile import ZipFile
 import pytest
 from imageio_ffmpeg import get_ffmpeg_exe
 
-from project import e_handoff
-from project.e_handoff import read_json, write_json
-from tools import b_media
+import e_handoff
+from e_handoff import read_json, write_json
+from nodes.probe_input import media as b_media
 
 
 def test_b_export_to_e_review_bundle(tmp_path: Path):
@@ -74,7 +74,7 @@ def test_b_export_to_e_review_bundle(tmp_path: Path):
             "video/final.mp4", "subtitles/bilingual.srt", "subtitles/burnin.ass",
             "cover/cover.jpg", "edit_assets.json", "review-report.json", "manifest.json",
         }
-        srt = archive.read("subtitles/bilingual.srt").decode()
+        srt = archive.read("subtitles/bilingual.srt").decode().replace("\r\n", "\n")
         assert "00:00:00,125 --> 00:00:00,875\n保留原片时间轴。\nKeep the original timeline." in srt
         assert "00:00:01,000 --> 00:00:01,750\n不要改动。\nDo not change it." in srt
         assert b"needs_human_review" in archive.read("review-report.json")

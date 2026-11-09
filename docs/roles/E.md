@@ -25,7 +25,9 @@
 
 ## B → C / D → E 文件联调
 
-B 的现行入口是 `python -m b_pipeline run`。它在自己的模型环境运行，交付完整任务目录，包含 `timetable.json`、`media.json`、`request.json` 和 `source/video.*`。请使用 sentence-v2 的已导出任务。B 的测试记录和模型环境见 [B 交接说明](../B-README.md)。
+B 的标准入口已迁为 `nodes.probe_input.probe_input` 和 `nodes.asr_diarize.asr_diarize`，见 [B 节点说明](../nodes/asr_diarize/README.md)。以下 E 文件交接工具仍消费历史 sentence-v2 的完整任务目录（timetable.json、media.json、request.json、source/video.*），不是标准节点主流程；不要把历史格式要求当作新的 B 接口。
+
+运行以下历史文件交接命令前，将仓库 project 设为模块搜索根目录：PowerShell 使用 `$env:PYTHONPATH = (Resolve-Path project).Path`，bash 使用 `export PYTHONPATH="$PWD/project"`。pytest 已在团队配置中设置该搜索路径。
 
 在团队项目根目录，先将该任务转换为共享分段：
 
@@ -35,6 +37,8 @@ uv run --locked python -m project.e_handoff prepare \
 ```
 
 `prepare` 校验 B 表结构、原片哈希、视频流和时长，写入 `segments/segments.json` 与 `handoff.json`。分段 ID 与说话人 ID 在同一次交接内稳定，交接表保留 B 的句子 ID、原说话人和复核标记。缺少说话人归属时记录 `spk_unknown`，D 需要先确认音色归属。B 的句子级英文和毫秒时间不被重写。
+
+`spk_unknown` 是此文件交接原型的处理方式，尚不能视为 F/D 已冻结的共享策略；当前标准 B 节点遇到未知说话人会明确报错，等待策略确认。
 
 | 放到同一交接目录的文件 | 交付方和约定 |
 |---|---|

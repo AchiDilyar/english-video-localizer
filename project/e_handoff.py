@@ -14,11 +14,11 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import TypeAdapter
 
-from project.contracts.edit import EditAssets
-from project.contracts.package import ManifestEntry, PackageManifest
-from project.contracts.segment import Segment
-from project.contracts.translated import TranslatedSegment
-from tools import b_media
+from contracts.edit import EditAssets
+from contracts.package import ManifestEntry, PackageManifest
+from contracts.segment import Segment
+from contracts.translated import TranslatedSegment
+from nodes.probe_input import media as b_media
 
 UNKNOWN = "spk_unknown"
 
