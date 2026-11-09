@@ -1,0 +1,32 @@
+{
+  "schema_version": "b-sources-1",
+  "sources": [
+    {
+      "source_id": "mit-python-remote-45s",
+      "kind": "https_excerpt",
+      "page_url": "https://ocw.mit.edu/courses/6-0001-introduction-to-computer-science-and-programming-in-python-fall-2016/resources/lecture-1-what-is-computation/",
+      "media_url": "https://archive.org/download/MIT6.0001F16/MIT6_0001F16_Lecture_01_300k.mp4",
+      "excerpt_start_sec": 60,
+      "excerpt_duration_sec": 45,
+      "original_offset_ms": 60000,
+      "authorization_status": "confirmed",
+      "license": "CC BY-NC-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "attribution": "Ana Bell. 6.0001 Introduction to Computer Science and Programming in Python, Fall 2016. MIT OpenCourseWare.",
+      "changes": "Excerpt at original 60–105 seconds; transcoded to H.264/AAC; machine transcription and sentence grouping added."
+    },
+    {
+      "source_id": "mit-python-local-45s",
+      "kind": "local",
+      "local_path": "../_large/asr_diarize/mit_lecture1_0060_0105.mp4",
+      "expected_sha256": "9d1df44862a0e0abe7cd3d561e768c84ea17e47022b07c7f33a08c544a236760",
+      "page_url": "https://ocw.mit.edu/courses/6-0001-introduction-to-computer-science-and-programming-in-python-fall-2016/resources/lecture-1-what-is-computation/",
+      "original_offset_ms": 60000,
+      "authorization_status": "confirmed",
+      "license": "CC BY-NC-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "attribution": "Ana Bell. 6.0001 Introduction to Computer Science and Programming in Python, Fall 2016. MIT OpenCourseWare.",
+      "changes": "Previously downloaded original 60–105 second excerpt; machine transcription and sentence grouping added."
+    }
+  ]
+}
