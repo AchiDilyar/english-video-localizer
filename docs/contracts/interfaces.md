@@ -125,19 +125,20 @@
 
 ## GraphState
 
-流程顶层状态容器，`TypedDict`，`total=False`。
+LangGraph 顶层状态。
+
+    所有字段均可选（默认 None）：流程初期很多字段尚不存在，节点按增量返回。
+    列表字段的增量语义为覆盖，不是追加。
 
 | 字段 | 类型 | 必填 | 约束/说明 |
 |---|---|---|---|
-| `input_video` | `str` | 否 | — |
-| `media_info` | `MediaInfo` | 否 | — |
-| `segments` | `list[Segment]` | 否 | — |
-| `blocks` | `list[TranslationBlock]` | 否 | — |
-| `terminology` | `dict[str, str]` | 否 | — |
-| `translated_blocks` | `list[TranslatedSegment]` | 否 | — |
-| `reviewed_blocks` | `list[TranslatedSegment]` | 否 | — |
-| `tts_clips` | `list[TTSClip]` | 否 | — |
-| `edit_assets` | `EditAssets` | 否 | — |
-| `manifest` | `PackageManifest` | 否 | — |
-
-说明：`GraphState` 为 `TypedDict`，JSON Schema 不强制禁止额外键；节点返回增量的键必须在 `GraphState` 中已定义，该约束由 `graph/` 合并逻辑与测试保证。
+| `input_video` | `UnionType[str, None]` | 否 | — |
+| `media_info` | `UnionType[MediaInfo, None]` | 否 | — |
+| `segments` | `UnionType[list[Segment], None]` | 否 | — |
+| `blocks` | `UnionType[list[TranslationBlock], None]` | 否 | — |
+| `terminology` | `UnionType[dict[str, str], None]` | 否 | — |
+| `translated_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
+| `reviewed_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
+| `tts_clips` | `UnionType[list[TTSClip], None]` | 否 | — |
+| `edit_assets` | `UnionType[EditAssets, None]` | 否 | — |
+| `manifest` | `UnionType[PackageManifest, None]` | 否 | — |

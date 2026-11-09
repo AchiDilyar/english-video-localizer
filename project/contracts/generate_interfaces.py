@@ -6,7 +6,6 @@
 
 说明：
 - BaseModel 使用 model_json_schema()；
-- GraphState 是 TypedDict，使用 TypeAdapter(GraphState).json_schema()；
 - JSON Schema 仅作为中间表示，不落盘为额外仓库文件；
 - 最终产物为 docs/contracts/interfaces.md，路径由 architecture.md 2.1 登记。
 """
@@ -14,7 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypedDict, get_args, get_origin, get_type_hints
+from typing import Any, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -43,6 +42,7 @@ BASE_MODELS: list[type[BaseModel]] = [
     EditAssets,
     ManifestEntry,
     PackageManifest,
+    GraphState
 ]
 
 
@@ -113,18 +113,6 @@ def _base_model_rows(model: type[BaseModel]) -> list[tuple[str, str, str, str]]:
         rows.append((name, _type_name(annotation), required, "；".join(constraints) or "—"))
     return rows
 
-
-def _typed_dict_rows(model: type[Any]) -> list[tuple[str, str, str, str]]:
-    """返回 TypedDict 的 (字段, 类型, 必填, 约束/说明) 行。"""
-    rows: list[tuple[str, str, str, str]] = []
-    hints = get_type_hints(model, include_extras=False)
-    required_keys = getattr(model, "__required_keys__", frozenset())
-    for name, annotation in hints.items():
-        required = "是" if name in required_keys else "否"
-        rows.append((name, _type_name(annotation), required, "—"))
-    return rows
-
-
 def render_markdown() -> str:
     """生成 interfaces.md 内容。"""
     lines: list[str] = [
@@ -149,21 +137,6 @@ def render_markdown() -> str:
         if model is Segment:
             lines.append("运行时校验（JSON Schema 不表达）：`end_ms > start_ms`。")
             lines.append("")
-
-    lines.append("## GraphState")
-    lines.append("")
-    lines.append("流程顶层状态容器，`TypedDict`，`total=False`。")
-    lines.append("")
-    lines.append("| 字段 | 类型 | 必填 | 约束/说明 |")
-    lines.append("|---|---|---|---|")
-    for name, type_name, required, note in _typed_dict_rows(GraphState):
-        lines.append(f"| `{name}` | `{type_name}` | {required} | {note} |")
-    lines.append("")
-    lines.append(
-        "说明：`GraphState` 为 `TypedDict`，JSON Schema 不强制禁止额外键；"
-        "节点返回增量的键必须在 `GraphState` 中已定义，该约束由 `graph/` 合并逻辑与测试保证。"
-    )
-    lines.append("")
 
     return "\n".join(lines)
 
