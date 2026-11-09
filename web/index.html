@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>基于多智能体协作的英文视频本地化系统</title>
+  <link rel="stylesheet" href="/workflow.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2379b5ce'/%3E%3Cpath d='M8 8h6v6H8zm10 10h6v6h-6zM14 11h7v7' stroke='%231e2228' fill='none' stroke-width='2'/%3E%3C/svg%3E">
+  <script type="module" src="/workflow.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-button mobile-menu" id="library-toggle" title="节点目录" aria-label="打开节点目录">☰</button>
+    <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 6h8v8H5zm14 12h8v8h-8zM13 10h10v8M9 14v8h10"/></svg></div>
+    <div class="brand"><h1>基于多智能体协作的英文视频本地化系统</h1><span>节点工作台 <b>/</b> 本地工作流草稿</span></div>
+    <div class="header-actions"><button id="save" title="保存到此浏览器 · Ctrl / ⌘ S">保存草稿</button><button id="export">导出</button><button id="import">导入</button><span class="divider"></span><button id="run" class="primary"><span aria-hidden="true">▶</span> 运行模拟示例</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="library" aria-label="节点目录">
+      <div class="panel-heading"><strong>节点目录</strong><span class="count">11</span></div>
+      <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索节点…" aria-label="搜索节点"><kbd>/</kbd></label>
+      <div id="library-list" class="library-list"></div>
+      <div class="library-bottom"><span class="small-label">工作流模板</span><label class="sr-only" for="preset">工作流模板</label><select id="preset"><option value="lecture">讲座 / 教程</option><option value="interview">双人访谈</option><option value="quick">快速调试</option></select><button id="apply-preset">应用参数模板</button><p>模板只更新配置，保留画布布局。</p></div>
+    </aside>
+    <section class="center" aria-label="工作流编辑器">
+      <div class="canvas-toolbar"><div class="workflow-tab"><span class="status-dot"></span>英文 → 中文 <span class="draft-tag">草稿</span></div><div class="canvas-tools"><button id="undo" class="icon-button" title="撤销 · Ctrl / ⌘ Z" aria-label="撤销">↶</button><button id="redo" class="icon-button" title="重做 · Ctrl / ⌘ Shift Z" aria-label="重做">↷</button><span class="divider"></span><button id="layout" title="恢复默认节点位置">自动排布</button><button id="help" class="icon-button" aria-label="操作帮助">?</button></div></div>
+      <div id="canvas" class="canvas" tabindex="0" aria-label="工作流画布，拖动节点标题移动节点，拖动空白处平移，滚轮缩放">
+        <div id="world" class="world"><div id="frames"></div><svg id="links" class="links" aria-hidden="true"></svg><div id="nodes"></div></div>
+        <div class="canvas-note"><span class="status-dot"></span>配置编辑模式<span>实线为正式依赖 · 虚线为模拟返工</span></div>
+        <div id="minimap-wrap" class="minimap-wrap"><span>导航图</span><svg id="minimap" viewBox="0 0 200 140" role="img" aria-label="点击导航图定位画布"></svg></div>
+        <div class="viewport-controls"><button id="zoom-out" class="icon-button" aria-label="缩小">−</button><button id="zoom" title="重置缩放到 100%">100%</button><button id="zoom-in" class="icon-button" aria-label="放大">+</button><span class="divider"></span><button id="fit">总览</button><button id="focus">定位选中</button><button id="fullscreen" class="icon-button" aria-label="切换全屏">⛶</button></div>
+      </div>
+      <section id="console" class="console" aria-label="运行记录与输出">
+        <div class="console-bar"><div class="console-tabs" role="tablist" aria-label="底部面板"><button id="log-tab" role="tab" aria-selected="true" aria-controls="log-panel">运行记录 <span id="event-count">0</span></button><button id="output-tab" role="tab" aria-selected="false" aria-controls="output-panel">节点输出</button></div><span id="run-status" role="status">尚未运行</span><button id="clear-log" title="清空本次记录">清空</button><button id="console-toggle" class="icon-button" aria-label="收起运行面板" aria-expanded="true">⌄</button></div>
+        <div id="log-panel" role="tabpanel" aria-labelledby="log-tab"><div class="console-hint">示例使用固定文本与模拟模型响应，当前画布参数不参与该示例。</div><ol id="events"><li class="empty">点击「运行模拟示例」，查看 LangGraph 翻译 → 审校 → 返工的实际更新。</li></ol></div>
+        <div id="output-panel" role="tabpanel" aria-labelledby="output-tab" hidden><pre id="console-output">尚无输出。请先运行模拟示例。</pre></div>
+      </section>
+    </section>
+    <aside class="inspector" aria-label="节点配置">
+      <div class="panel-heading"><strong>节点配置</strong><button id="inspector-close" class="icon-button" aria-label="关闭节点配置">×</button><span id="detail-role" class="role-tag"></span></div>
+      <div class="inspector-title"><div id="detail-icon" class="detail-icon"></div><div><h2 id="detail-name"></h2><code id="detail-id"></code></div></div>
+      <div class="inspector-tabs" role="tablist" aria-label="节点信息"><button role="tab" data-inspect-tab="params" aria-selected="true">参数</button><button role="tab" data-inspect-tab="preview" aria-selected="false">预览</button><button role="tab" data-inspect-tab="info" aria-selected="false">接口</button></div>
+      <div class="inspector-content" id="inspector-content"></div>
+      <div class="inspector-footer"><span id="field-count"></span><button id="reset-node">重置此节点</button></div>
+    </aside>
+  </main>
+  <footer class="statusbar"><span id="save-status" role="status">草稿保存在当前浏览器</span><span class="footer-right">LangGraph <span>·</span> 11 节点 <span>·</span> 本地模拟 <kbd>F</kbd> 总览 <kbd>1</kbd> 定位</span></footer>
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="dialog"><form method="dialog"><div class="dialog-heading"><h2 id="dialog-title"></h2><button value="cancel" class="icon-button" aria-label="关闭对话框">×</button></div><div id="dialog-body"></div><div class="dialog-actions"><button value="cancel">取消</button><button value="confirm" class="primary" id="dialog-confirm">确认</button></div></form></dialog>
+</body>
+</html>

@@ -55,3 +55,15 @@ uv run --locked python -m video_localizer.translation_demo --live
 `--live` 会向 DeepSeek 发送一条固定的英文测试句和它的译稿，用于验证翻译和审校。模型调用会计入 API 用量。后续 C 的翻译与审校、E 的中文编辑可以复用 `video_localizer.deepseek.generate_json`，分别定义提示词和输出字段。
 
 本地模型的准备由 B 负责。faster-whisper 需要先下载模型文件。pyannote Community-1 需要登录 Hugging Face 并接受模型页条件，首次下载时读取本机 `HF_TOKEN`。文件准备后可以在本机运行。D 接入 CosyVoice 时单独配置百炼凭据。 [pyannote 权限与本地运行](https://huggingface.co/pyannote/speaker-diarization-community-1#setup)
+
+## 本地工作流画布
+
+```bash
+uv run --locked python scripts/serve_workflow_ui.py
+```
+
+浏览器打开 `http://127.0.0.1:8765/`。端口占用时使用 `--port 8766`。新版是可编辑的节点工作台，支持 11 个节点的 118 项参数草稿、节点拖动与折叠、导航图、撤销重做、本地保存和 JSON 导入导出。
+
+画布沿用[工作流设计](design/workflow.md#3-节点清单)中的节点。运行模拟示例会调用本地 LangGraph 固定翻译、审校和返工，并回放实际更新。画布参数尚未传入业务模块；字幕与封面的浏览器样式预览已可使用。服务仅监听本机地址。
+
+完整操作、参数范围、已验证能力和后端接入约定见 [WebUI 使用与开发说明](webui.md)。
