@@ -38,7 +38,7 @@
 | 配音与返工 | TTS 输入为口播稿和说话人音色，输出音频与实测时长。短于时间窗时补静音，超时可最多加速到 1.15 倍，仍超时则只退回这一段重写和复审。每段最多两次内容返工 |
 | 续跑与成片 | LangGraph 用本地 SQLite 保存图状态，磁盘保存各块产物。续跑复用已完成结果，并校验音频对应的文本、模型和音色。仍有待复核问题时保留报告，通过后再生成正式 ZIP |
 
-计划工具链为 Python 3.11、LangGraph、Pydantic、faster-whisper、pyannote Community-1、百炼千问、CosyVoice、Pillow、FFmpeg/ffprobe。CLI 计划提供 `run --input <路径或链接>` 和 `resume --job <任务ID>`。模拟与真实适配器沿用相同数据结构。
+计划工具链为 Python 3.11、LangGraph、Pydantic、faster-whisper、pyannote Community-1、DeepSeek 文本 API、CosyVoice、Pillow、FFmpeg/ffprobe。CLI 计划提供 `run --input <路径或链接>` 和 `resume --job <任务ID>`。模拟与真实适配器沿用相同数据结构。
 
 ## 4. 七人分工
 
