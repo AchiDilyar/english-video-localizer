@@ -3,12 +3,9 @@
 No application audio chunks. Native ASR segment/word alignments stay in memory and
 are never put in files, logs, cache, or LangGraph checkpoint state.
 """
-from dataclasses import asdict
 import csv
-import copy
 import html
 import importlib.metadata
-import logging
 import os
 from pathlib import Path
 import shutil
@@ -22,10 +19,9 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from nodes.probe_input import media as b_media
 from .common import BError,artifact,digest,event,object_hash,read_json,write_json,milliseconds
 from .video_inputs import resolve_input,download_input
-from .sentence_rules import sentences_from_words,sentence_audit,validate_sentence_table
+from .sentence_rules import validate_sentence_table
 
 ROOT=Path(__file__).resolve().parents[4]
-logger=logging.getLogger(__name__)
 
 
 class SentenceState(TypedDict,total=False):
@@ -97,56 +93,15 @@ def _prepare(state):
 
 
 def _recognize_sentence(state):
-    from faster_whisper import WhisperModel
-    import spacy
-    r=state['request'];job=state['job_dir'];started=time.perf_counter()
-    model=WhisperModel(r['model_dir'],device='cpu',compute_type='int8',cpu_threads=4,local_files_only=True)
-    load=time.perf_counter()-started;t=time.perf_counter()
-    # Exactly one transcribe call for the complete audio; no external splitting.
-    stream,info=model.transcribe(str(artifact(job,state['audio_ref'])),language='en',beam_size=5,
-                                 temperature=0,word_timestamps=True,vad_filter=False,condition_on_previous_text=True)
-    words=[];count=0
-    for segment in stream:
-        if not segment.words and segment.text.strip():raise BError('WORD_ALIGNMENT_MISSING','Cannot time sentence text without alignment')
-        words.extend({'word':w.word,'start':w.start,'end':w.end} for w in segment.words or [])
-        count+=1
-        if count%100==0:logger.info('ASR internal decoder results processed (not saved): %d',count)
-    inference=time.perf_counter()-t
-    nlp=spacy.load('en_core_web_sm',disable=['ner']);nlp.max_length=3000000
-    semantic=r.get('semantic_review',{'provider':'none'})
-    reviewer=None
-    if semantic['provider']=='deepseek':
-        from .semantic_review import DeepSeekHTTP
-        reviewer=DeepSeekHTTP(allow_network=semantic['allow_network'],max_calls=semantic['max_calls'])
-        if reviewer.model!=semantic.get('model') or reviewer.base_url!=semantic.get('base_url'):
-            raise BError('SEMANTIC_CONFIG_CHANGED','Semantic model/endpoint changed; create a new task')
-    sentences,review=sentences_from_words(words,nlp,semantic_reviewer=reviewer)
-    # Discard alignment before any durable output/checkpoint update.
-    word_count=len(words);del words,stream,model
-    table={'schema_version':'b-sentences-2','duration_ms':state['duration_ms'],
-           'source':state['source_meta'],'sentences':sentences,'review':review,
-           'verification':{'human_confirmed':False,'automatic_diarization_executed':False,
-                           'sentence_semantics_guaranteed':False},
-           'execution':{'engine':'faster-whisper','language':'en','device':'cpu','compute_type':'int8',
-                        'model_load_sec':load,'inference_sec':inference,'transcribe_calls':1,
-                        'external_audio_chunks':0,'internal_decoder_results_not_persisted':count,
-                        'aligned_word_count_used_in_memory':word_count,'raw_asr_timestamps_persisted':False,
-                        'paid_api_calls':getattr(reviewer,'calls',0),'deepseek_used':bool(getattr(reviewer,'calls',0))}}
+    from .recognition import recognize_audio
+    table=recognize_audio(artifact(state['job_dir'],state['audio_ref']),state['request']['model_dir'],
+                          state['duration_ms'],state['source_meta'],state['request'].get('semantic_review'))
     return {'table':table}
 
 
 def _review(state):
-    import spacy
-    table=copy.deepcopy(state['table']);nlp=spacy.load('en_core_web_sm',disable=['ner'])
-    # Second check uses sentence text only; no original ASR alignment is available here.
-    for sentence in table['sentences']:
-        extra=sentence_audit(sentence['en'],nlp)
-        sentence['review_issues']=sorted(set(sentence['review_issues']+extra))
-        sentence['review_status']='needs_human_review' if sentence['review_issues'] else 'automatic_checks_passed'
-    errors=validate_sentence_table(table)
-    table['review']['structural_errors']=errors
-    table['review']['sentences_needing_human_review']=sum(bool(s['review_issues']) for s in table['sentences'])
-    table['status']='blocked_validation' if errors else 'ready_for_human_review'
+    from .recognition import review_table
+    table=review_table(state['table'])
     return {'table':table,'status':table['status']}
 
 

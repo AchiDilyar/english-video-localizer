@@ -1,8 +1,24 @@
-"""B's local LangGraph subworkflow; no translation, TTS or team main graph."""
+"""Historical standalone API, loaded only when explicitly requested.
 
-from .sentence_mode import build_sentence_graph as build_b_graph
-from .sentence_mode import run_sentences as run_b, resume_sentences as resume_b, load_sentence_table as load_timetable
-from .video_inputs import resolve_input,download_input
-from .diarization import diarize,assign_speakers
+Shared nodes import in-memory algorithms without importing the legacy graph/CLI.
+"""
+from importlib import import_module
 
-__all__ = ['build_b_graph', 'run_b', 'resume_b', 'load_timetable', 'resolve_input','download_input','diarize','assign_speakers']
+_EXPORTS = {
+    "build_b_graph": ("sentence_mode", "build_sentence_graph"),
+    "run_b": ("sentence_mode", "run_sentences"),
+    "resume_b": ("sentence_mode", "resume_sentences"),
+    "load_timetable": ("sentence_mode", "load_sentence_table"),
+    "resolve_input": ("video_inputs", "resolve_input"),
+    "download_input": ("video_inputs", "download_input"),
+    "diarize": ("diarization", "diarize"),
+    "assign_speakers": ("diarization", "assign_speakers"),
+}
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(name)
+    module, attribute = _EXPORTS[name]
+    return getattr(import_module(f"{__name__}.{module}"), attribute)

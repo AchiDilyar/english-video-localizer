@@ -58,7 +58,7 @@ def prepare_audio(video: Path, audio: Path, info: dict, ffmpeg: str) -> None:
 
 
 def recognize(audio: Path, duration_ms: int, options: ASROptions) -> dict:
-    from .pipeline.sentence_mode import _recognize_sentence, _review
+    from .pipeline.recognition import recognize_audio, review_table
 
     semantic = {"provider": options.semantic_provider}
     if options.semantic_provider == "deepseek":
@@ -70,21 +70,18 @@ def recognize(audio: Path, duration_ms: int, options: ASROptions) -> dict:
         semantic.update({"allow_network": options.allow_semantic_network,
                          "max_calls": options.semantic_max_calls,
                          "model": client.model, "base_url": client.base_url})
-    state = {"job_dir": str(audio.parent), "audio_ref": audio.name,
-             "duration_ms": duration_ms, "source_meta": {},
-             "request": {"model_dir": str(repository_path(options.model_dir)),
-                         "semantic_review": semantic}}
-    table = _recognize_sentence(state)["table"]
+    model_dir = str(repository_path(options.model_dir))
+    table = recognize_audio(audio, model_dir, duration_ms, semantic_config=semantic)
     if options.audio_recheck:
         import spacy
         from faster_whisper import WhisperModel
         from .pipeline.audio_recheck import recheck_table
 
-        model = WhisperModel(state["request"]["model_dir"], device="cpu", compute_type="int8",
+        model = WhisperModel(model_dir, device="cpu", compute_type="int8",
                              cpu_threads=4, local_files_only=True)
         table = recheck_table(table, audio, model, spacy.load("en_core_web_sm", disable=["ner"]),
                               strict_errors=True)
-    return _review({"table": table})["table"]
+    return review_table(table)
 
 
 def run_diarization(audio: Path, duration_ms: int, options: ASROptions) -> dict:
@@ -104,6 +101,8 @@ def run_diarization(audio: Path, duration_ms: int, options: ASROptions) -> dict:
                             errors="replace", timeout=options.worker_timeout_sec)
     if result.returncode:
         raise RuntimeError("Community-1 worker failed: " + result.stderr[-3000:])
+    if result.stderr.strip():
+        logger.info("Community-1 worker output:\n%s", result.stderr.rstrip())
     data = json.loads(result.stdout)
     if data["metadata"]["audio_sha256"] != digest(audio) or data["metadata"]["duration_ms"] != duration_ms:
         raise ValueError("Community-1 output does not match source_audio")

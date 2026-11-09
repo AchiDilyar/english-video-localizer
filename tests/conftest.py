@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+collect_ignore = ["tmp", "data"]
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):

@@ -22,6 +22,8 @@ delta = asr_diarize(GraphState(input_video="input.mp4"))
 
 正常日志经模块 logger 交给 CLI 的统一 logs/run.log。节点不吞异常、不创建事件文件、检查点、HTML 或字幕。pipeline/ 中独立旧流程的持久化功能不在共享节点调用链上。
 
+附件规范复核后，共享节点直接调用 recognition.py 的内存算法，并原样传入公共工具解析的音频路径，不再借用旧图的路径适配函数。历史 API 改为按需导入；Community-1 子进程诊断通过父节点 logger 汇入统一日志。详见 [逐项规范核对](B-spec-compliance-20261109.md)。
+
 ## 配置与环境
 
 - 模型路径相对仓库根解析，也接受绝对路径，不依赖当前目录。

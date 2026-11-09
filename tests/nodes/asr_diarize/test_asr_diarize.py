@@ -126,3 +126,45 @@ def test_worker_failure_has_no_silent_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stderr="test worker failure"))
     with pytest.raises(RuntimeError, match="test worker failure"):
         node.run_diarization(tmp_path / "source.wav", 1000, node.ASROptions())
+
+
+def test_recognition_consumes_resolved_path_without_artifact_reconstruction(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+    import faster_whisper
+    from nodes.asr_diarize.pipeline import common
+
+    audio = tmp_path / "resolved audio.wav"
+    audio.write_bytes(b"not decoded: model is a fixed test double")
+    words = [SimpleNamespace(word=w, start=i * .4, end=i * .4 + .3)
+             for i, w in enumerate("Python is useful.".split())]
+    model = MagicMock()
+    model.transcribe.return_value = (iter([SimpleNamespace(words=words, text="Python is useful.")]), None)
+    monkeypatch.setattr(faster_whisper, "WhisperModel", lambda *a, **k: model)
+
+    def forbidden(*args):
+        raise AssertionError("Shared recognition must not reconstruct a job artifact path")
+
+    monkeypatch.setattr(common, "artifact", forbidden)
+    table = node.recognize(audio, 2000, node.ASROptions(audio_recheck=False))
+    assert model.transcribe.call_args.args == (str(audio),)
+    assert table["sentences"][0]["en"] == "Python is useful."
+    assert list(tmp_path.iterdir()) == [audio]
+
+
+def test_worker_diagnostics_use_parent_module_logger(monkeypatch, tmp_path, caplog):
+    import logging
+    import subprocess
+    from nodes.asr_diarize.pipeline.common import digest
+
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"fixed audio fingerprint, no inference")
+    result = {"metadata": {"audio_sha256": digest(audio), "duration_ms": 1000},
+              "speaker_ids": ["speaker_001"],
+              "turns": [{"start_ms": 0, "end_ms": 1000, "speaker_id": "speaker_001"}]}
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout=json.dumps(result), stderr="test local worker diagnostic"
+    ))
+    with caplog.at_level(logging.INFO, logger=node.__name__):
+        node.run_diarization(audio, 1000, node.ASROptions())
+    assert any(r.name == node.__name__ and "test local worker diagnostic" in r.getMessage()
+               for r in caplog.records)
