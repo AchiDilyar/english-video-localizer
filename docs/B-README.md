@@ -4,7 +4,6 @@
 
 ## 先读这些
 
-- [微信群进度说明](B-WeChat-progress-20261109.md)：完成项、待完成项及沟通事项。
 - [与 F 最新契约的逐项比较](B-F-interface-review-20261109.md)：共享节点、字段、路径、Python 版本和待确认问题。
 - [当前独立接口 V2](B-sentence-v2.md)：CLI、Python 调用、输出与恢复边界；当前接口不能直接作为 F 新节点签名。
 - [80 分钟多人长视频记录](B-long-multiperson-YouTube-20261108.md)：来源、耗时、统计、失败记录及人工核对限制。
