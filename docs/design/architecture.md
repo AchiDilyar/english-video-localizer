@@ -1,6 +1,6 @@
 # 项目代码架构设计
 
-版本：v1.1.0
+版本：v1.2.0
 最后更新：2026-11-09
 
 ---
@@ -17,7 +17,9 @@
 - 配置加载机制；
 - 通用函数接口；
 - CLI 入口与出口；
-- 节点失败基本行为。
+- 节点失败基本行为；
+- 测试代码的组织与存放规范。
+- 日志的存放与格式规范。
 
 ### 1.2 本文档是以下内容的唯一事实源
 
@@ -33,6 +35,8 @@
 | 通用函数接口 | 第 6 节 通用函数接口 | 路径函数、读写函数、配置加载函数的签名与职责；产物规格表 |
 | CLI 入口与出口 | 第 7 节 CLI 入口与出口 | 命令形式、参数、默认值、工作目录与输入视频必须存在、输出格式、退出码 |
 | 节点失败基本行为 | 第 8 节 节点失败基本行为 | 异常抛出、图终止、CLI 非零退出 |
+| 测试组织规范 | 第 2.5 节 测试组织 | 测试代码位置、命名、数据存放与归属 |
+| 日志组织规范 | 第 2.6 节 日志组织 | 日志文件位置、格式、logger 命名、异常记录方式 |
 
 ### 1.3 文档引用约定
 
@@ -50,8 +54,9 @@
 ```text
 english-video-localizer/
   project/          # 主代码
+  tests/            # 测试代码，结构镜像 project/
   docs/
-    design/         # 三份设计文档与 CHANGELOG
+    design/         # 设计文档、协作约定与 CHANGELOG
       workflow.md
       dataflow.md
       architecture.md
@@ -79,6 +84,7 @@ project/
     paths.py
     io.py
     config.py
+    log.py
 ```
 
 ### 2.3 各目录职责
@@ -95,6 +101,7 @@ project/
 | `utils/io.py` | 结构化数据读写与 Pydantic 校验；校验类型从 `utils/artifacts.py` 的产物规格表获取 |
 | `utils/config.py` | 配置加载入口 |
 | `config/` | 配置文件存放位置，具体文件由各模块自行定义和解析；`config/mock.toml` 由 F 维护 |
+| `utils/log.py` | 日志初始化入口；CLI 调用一次，配置 root logger 写文件与 stderr |
 
 ### 2.4 节点模块结构约定
 
@@ -310,5 +317,30 @@ run-input [--work-dir PATH] [--input FILENAME]
 1. 节点内部异常直接抛出，不做捕获和降级；
 2. 图终止，不再执行后续节点；
 3. CLI 捕获异常，打印错误摘要，返回非零退出码；
-4. 节点不要求写重试、降级、退回、日志文件；
-5. 测试和日志的目标是保证模块可以正常运行、出问题能够快速排查，对格式和内容不做强制要求。
+4. 节点不要求写重试、降级、退回、日志文件。
+
+## 9. 测试与日志组织
+
+### 9.1 测试组织
+
+- 测试和日志的目标是保证模块可以正常运行、出问题能够快速排查，对格式和内容不做强制要求。基本版不建设完整测试体系（不强制覆盖率、不配 CI、不引入测试报告）。
+- 不强制每个模块提供测试；若提供，按本节组织。
+- 测试代码放在仓库顶层 `tests/`，结构镜像 `project/`：`tests/utils/` 对应 `project/utils/`，`tests/nodes/` 对应 `project/nodes/`，依此类推；
+- 测试由对应模块的负责人维护：F 负责 `tests/utils/`、`tests/graph/`、`tests/smoke/`，B/C/D/E 负责 `tests/nodes/` 下各自节点的测试；
+- 建议负责人在测试目录中放入`README.md`，简要说明各测试脚本的功能、测试数据获取方式等必要信息，此项不强制要求；
+- 测试文件命名为 `test_<module_name>.py`，测试函数命名为 `test_<behavior>`
+- 测试统一通过 `python -m pytest tests/[模块路径]` 运行；单个测试脚本用 `python -m pytest tests/.../test_xxx.py`。
+- 仓库根 `pyproject.toml` 的 `[tool.pytest.ini_options]` 已配置 `pythonpath = ["project"]`，测试文件直接以`project`文件夹为根目录导入模块，如`import utils`，不需要修改 `sys.path`；
+- 不支持直接 `python tests/.../test_xxx.py` 运行。直接运行会因找不到模块而失败，这是预期行为，请使用 pytest；
+- 测试数据放在 `tests/data/<module>/`；小样例（< 1 MB）提交到仓库，大文件放在 `tests/data/_large/<module>/` 并通过 `.gitignore` 排除，由模块负责人本地提供，`tests/data/` 说明各目录用途与获取方式；
+- 测试运行时临时创建的目录放在 `tests/tmp/`，`tests/tmp/` 不提交；
+- `project/mocks/` 是项目代码（mock 模式下的节点替代实现），不属于测试代码；`tests/` 在测试时可导入 `mocks/`，反之不允许。
+
+### 9.2 日志组织
+
+- 所有日志写入同一个文件 `work_dir/logs/run.log`，由 CLI 在 `set_work_dir` 之后调用 `utils/log.py` 的 `setup_logging` 创建并初始化；日志是运行副产品，不进入产物表，不走 `read/write_artifact`；
+- 日志格式由 `setup_logging` 统一配置，包含时间、级别、logger 名称与消息；默认有效级别为 `INFO`；
+- 模块内统一使用 `logging.getLogger(__name__)` 获取 logger，禁止自编 logger 名称。
+- 正常日志与异常日志不分文件，靠级别区分。节点内部不捕获异常、不记异常日志；异常直接抛出，由 CLI 顶层 `except` 用 `logger.exception` 记录一次完整栈后重新抛出；
+- 不强制节点写日志；若写，建议使日志能反映智能体工作流程，不强制要求；
+- 测试产生的临时日志放在 `tests/tmp/`，由 `.gitignore` 排除。
