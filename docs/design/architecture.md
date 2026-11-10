@@ -1,6 +1,6 @@
 # 项目代码架构设计
 
-版本：v1.2.1
+版本：v1.3.0
 最后更新：2026-11-09
 
 ---
@@ -330,7 +330,7 @@ run-input [--work-dir PATH] [--input FILENAME]
 - 测试由对应模块的负责人维护：F 负责 `tests/utils/`、`tests/graph/`、`tests/smoke/`，B/C/D/E 负责 `tests/nodes/` 下各自节点的测试；
 - 建议负责人在测试目录中放入`README.md`，简要说明各测试脚本的功能、测试数据获取方式等必要信息，此项不强制要求；
 - 测试文件命名为 `test_<module_name>.py`，测试函数命名为 `test_<behavior>`
-- 测试统一通过 `python -m pytest tests/[模块路径]` 运行；单个测试脚本用 `python -m pytest tests/.../test_xxx.py`。
+- 测试统一通过 `uv run pytest tests/[模块路径]` 运行；单个测试脚本用 `uv run pytest tests/.../test_xxx.py`。uv run 自动使用项目 `.venv` 和 `uv.lock` 锁定的依赖，不依赖调用者当前 shell 的 Python 环境。
 - 仓库根 `pyproject.toml` 的 `[tool.pytest.ini_options]` 已配置 `pythonpath = ["project"]`，测试文件直接以`project`文件夹为根目录导入模块，如`import utils`，不需要修改 `sys.path`；
 - 不支持直接 `python tests/.../test_xxx.py` 运行。直接运行会因找不到模块而失败，这是预期行为，请使用 pytest；
 - 测试数据放在 `tests/data/<module>/`；小样例（< 1 MB）提交到仓库，大文件放在 `tests/data/_large/<module>/` 并通过 `.gitignore` 排除，由模块负责人本地提供，`tests/data/` 说明各目录用途与获取方式；
@@ -345,3 +345,8 @@ run-input [--work-dir PATH] [--input FILENAME]
 - 正常日志与异常日志不分文件，靠级别区分。节点内部不捕获异常、不记异常日志；异常直接抛出，由 CLI 顶层 `except` 用 `logger.exception` 记录一次完整栈后重新抛出；
 - 不强制节点写日志；若写，建议使日志能反映智能体工作流程，不强制要求；
 - 测试产生的临时日志放在 `tests/tmp/`，由 `.gitignore` 排除。
+
+## 10. 依赖管理
+
+- 项目使用 uv 管理依赖和虚拟环境。pyproject.toml 声明依赖，uv.lock 锁定精确版本并提交到版本控制，确保可复现安装。
+- 运行任何项目命令统一使用 `uv run ...`，不直接使用裸 `python` 或 `pip`。新增依赖使用 `uv add`（开发依赖用 `uv add --dev`），不手工编辑 `uv.lock`。
