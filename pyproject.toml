@@ -42,6 +42,9 @@ dev = ["imageio-ffmpeg>=0.8,<1", "pytest>=8,<10", "ruff>=0.14,<1"]
 requires = ["uv_build>=0.9,<0.13"]
 build-backend = "uv_build"
 
+[project.scripts]
+run-input = "cli:main"
+
 [tool.uv.build-backend]
 module-name = "video_localizer"
 
