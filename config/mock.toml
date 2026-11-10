@@ -1,3 +1,14 @@
 # mock 节点开关。键为节点名，值为布尔；未列出的节点默认为真实实现。
 # 由 F 维护，其它角色不可修改。
-# 当前状态：创建该配置文件仅用于支持utils模块的测试，完整配置待实现
+
+probe_input = true
+asr_diarize = true
+build_blocks = true
+translate_blocks = true
+review_blocks = true
+tts_align = true
+edit_assets = true
+subtitle_cover = true
+compose_video = true
+collect_manifest = true
+package_zip = true
