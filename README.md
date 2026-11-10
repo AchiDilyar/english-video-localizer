@@ -6,6 +6,8 @@
 
 **B 节点（已按 architecture v1.2.0 整理）**：[probe_input](docs/nodes/probe_input/README.md) · [asr_diarize](docs/nodes/asr_diarize/README.md) · [迁移与验证记录](docs/nodes/asr_diarize/B-layout-v1.2.0.md)。两个入口为 `nodes.probe_input.probe_input` 和 `nodes.asr_diarize.asr_diarize`。测试统一使用 `uv run --extra b-asr pytest tests/nodes`；F 的公共工具已实现，B 已增加真实 utils 联调用例；完整主图联调另行验收。
 
+**B→C→F 阶段联调**：[主图入口与交付说明](docs/graph/README.md)。`from graph import build_graph` 已连接基本版拓扑，新增 14 秒双人短片及 11 条共享分段。接口联调使用缓存 B 预测与固定文本模型响应，不代表真实翻译、D/E 或整片成片验收。
+
 - [整体项目规划书](docs/project-plan.md) · 项目范围、七人分工、接口、10 天排期和课堂汇报
 - [开发环境](docs/development.md) · 安装依赖并验证字幕、封面与成片工具
 - [成员工作记录](docs/roles/README.md) · A–G 的分工、交接和进度

@@ -14,6 +14,7 @@ media/
 models/
 sources.json
 *.mp4
+!tests/data/asr_diarize/real_dialogue/input.mp4
 *.wav
 *.srt
 *.zip

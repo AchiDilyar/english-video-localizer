@@ -9,3 +9,5 @@
 旧 registry 本地样例指向 `_large/asr_diarize/mit_lecture1_0060_0105.mp4`。历史真实 DeepSeek 响应只提取公开 tokens 和分界结果到 semantic-boundary.json，不带凭据或调用元数据；测试不会重新调用 API。
 
 现场生成的文件和日志放 `tests/tmp/`，不放本目录或历史 jobs。不要提交私人视频和凭据。
+
+`asr_diarize/real_dialogue/` 提供可共享的 14 秒双人短片（约 0.72 MB）、11 条真实机器预测分段和 CC BY 3.0 来源记录；这是对视频忽略规则的单文件例外。`graph/b_c_dialogue/responses.json` 是人工固定的中文接口响应，供 F 主图联调，不是实际 DeepSeek 译文或人工验收真值。
