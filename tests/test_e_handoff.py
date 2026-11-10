@@ -4,11 +4,10 @@ import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
-import pytest
-from imageio_ffmpeg import get_ffmpeg_exe
-
 import e_handoff
+import pytest
 from e_handoff import read_json, write_json
+from imageio_ffmpeg import get_ffmpeg_exe
 from nodes.probe_input import media as b_media
 
 
@@ -67,7 +66,8 @@ def test_b_export_to_e_review_bundle(tmp_path: Path):
         ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=frequency=660:duration=2",
         str(work / "audio/dub.wav"),
     ], check=True)
-    package = e_handoff.render(b_job, work, copy, ffmpeg, ffprobe)
+    package = e_handoff.render(b_job, work, copy, ffmpeg, ffprobe,
+                               subtitle_style="cinema", subtitle_layout="zh_bottom")
     with ZipFile(package) as archive:
         assert archive.testzip() is None
         assert set(archive.namelist()) == {
@@ -77,6 +77,10 @@ def test_b_export_to_e_review_bundle(tmp_path: Path):
         srt = archive.read("subtitles/bilingual.srt").decode().replace("\r\n", "\n")
         assert "00:00:00,125 --> 00:00:00,875\n保留原片时间轴。\nKeep the original timeline." in srt
         assert "00:00:01,000 --> 00:00:01,750\n不要改动。\nDo not change it." in srt
+        ass = archive.read("subtitles/burnin.ass").decode()
+        assert "PlayResX: 1280\nPlayResY: 720" in ass
+        assert "Style: ZH," in ass and "&H00ADE7FF" in ass
+        assert r",EN,,0,0,0,,Keep the original timeline.\N{\rZH}保留原片时间轴。" in ass
         assert b"needs_human_review" in archive.read("review-report.json")
     assert (b_job / "timetable.json").read_bytes() == original
 

@@ -6,8 +6,8 @@ pytest.importorskip("numpy", reason="Use uv run --extra b-asr pytest tests/graph
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from contracts import GraphState, Segment
 from graph import build_graph, registry
@@ -66,10 +66,11 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "load_config", lambda filename: flags)
     monkeypatch.setattr(paths, "_work_dir", None)
     paths.set_work_dir(str(work))
-    graph = build_graph(interrupt_after=["review_blocks"])
+    graph = build_graph()
     events = list(graph.stream(GraphState(input_video="input.mp4"), stream_mode="updates"))
     called = [name for event in events for name in event if not name.startswith("__")]
-    assert called == list(registry.NODE_NAMES[:5])
+    assert called[:5] == list(registry.NODE_NAMES[:5])
+    assert set(called[5:]) == set(registry.NODE_NAMES[5:])
     source = read_artifact("segments")
     reviewed = read_artifact("reviewed_blocks")
     assert source == expected

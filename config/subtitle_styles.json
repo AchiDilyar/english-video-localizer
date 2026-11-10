@@ -1,0 +1,33 @@
+{
+  "default_style": "clean",
+  "default_layout": "zh_top",
+  "resolutions": [720, 1080, 2160],
+  "layouts": {
+    "zh_only": {"label": "仅译文", "lines": ["zh"]},
+    "zh_top": {"label": "双语 · 译文在上", "lines": ["zh", "en"]},
+    "zh_bottom": {"label": "双语 · 译文在下", "lines": ["en", "zh"]}
+  },
+  "styles": {
+    "clean": {
+      "label": "清晰白字",
+      "zh_size": 48, "en_size": 34,
+      "zh_color": "#ffffff", "en_color": "#e9edf2",
+      "edge_color": "#101010", "outline": 3, "shadow": 0,
+      "margin_x": 100, "margin_y": 65, "box": false, "bold": false
+    },
+    "cinema": {
+      "label": "暖色电影",
+      "zh_size": 50, "en_size": 32,
+      "zh_color": "#ffe7ad", "en_color": "#fff7e5",
+      "edge_color": "#211b17", "outline": 3, "shadow": 2,
+      "margin_x": 110, "margin_y": 82, "box": false, "bold": false
+    },
+    "contrast": {
+      "label": "高对比底框",
+      "zh_size": 52, "en_size": 36,
+      "zh_color": "#ffffff", "en_color": "#f0f4fa",
+      "edge_color": "#10151de0", "outline": 5, "shadow": 0,
+      "margin_x": 112, "margin_y": 60, "box": true, "bold": true
+    }
+  }
+}

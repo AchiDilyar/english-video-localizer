@@ -59,11 +59,11 @@ uv run --locked python -m video_localizer.translation_demo --live
 ## 本地工作流画布
 
 ```bash
-uv run --locked python scripts/serve_workflow_ui.py
+uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 ```
 
-浏览器打开 `http://127.0.0.1:8765/`。端口占用时使用 `--port 8766`。新版是可编辑的节点工作台，支持 11 个节点的 118 项参数草稿、节点拖动与折叠、导航图、撤销重做、本地保存和 JSON 导入导出。
+浏览器打开 `http://127.0.0.1:8765/`。端口占用时使用 `--port 8766`。新版是可编辑的节点工作台，支持 12 个节点的参数草稿、节点拖动与折叠、导航图、撤销重做、本地工程标签页和 JSON 打开与保存。
 
-画布沿用[工作流设计](design/workflow.md#3-节点清单)中的节点。运行模拟示例会调用本地 LangGraph 固定翻译、审校和返工，并回放实际更新。画布参数尚未传入业务模块；字幕与封面的浏览器样式预览已可使用。服务仅监听本机地址。
+画布沿用[工作流设计](design/workflow.md#3-节点清单)中的节点。在视频输入节点选 MP4 后点击「运行工作流」，会调用 B 的本地 LangGraph 子流程。英文 SRT 生成后，画布标出尚未接入的断句与术语节点，运行记录会显示英文 SRT 初稿已保存在任务目录。画布参数尚未传入业务模块；字幕与封面的浏览器样式预览已可使用。服务仅监听本机地址。
 
 完整操作、参数范围、已验证能力和后端接入约定见 [WebUI 使用与开发说明](webui.md)。

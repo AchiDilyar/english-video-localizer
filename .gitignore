@@ -1,5 +1,6 @@
 .env
 .venv/
+.venv-b/
 .venv-uv/
 .venv-community1/
 .venv-community1-gpu/

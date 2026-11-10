@@ -11,14 +11,21 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from PIL import Image, ImageDraw, ImageFont
-from pydantic import TypeAdapter
-
 from contracts.edit import EditAssets
 from contracts.package import ManifestEntry, PackageManifest
 from contracts.segment import Segment
 from contracts.translated import TranslatedSegment
 from nodes.probe_input import media as b_media
+from PIL import Image, ImageDraw, ImageFont
+from pydantic import TypeAdapter
+from subtitle_templates import (
+    DEFAULT_LAYOUT,
+    DEFAULT_STYLE,
+    LAYOUTS,
+    STYLES,
+    ass_dialogue,
+    ass_header,
+)
 
 UNKNOWN = "spk_unknown"
 
@@ -157,7 +164,8 @@ def timestamp(milliseconds, *, ass=False):
     return f"{hours:02}:{minutes:02}:{seconds:02},{fraction:03}"
 
 
-def write_subtitles(directory, rows, font_name):
+def write_subtitles(directory, rows, font_name, *, width=1920, height=1080,
+                    style=DEFAULT_STYLE, layout=DEFAULT_LAYOUT):
     srt, ass = [], []
     for number, (segment, translated) in enumerate(rows, 1):
         zh = " ".join(translated.zh_subtitle.split())
@@ -168,26 +176,9 @@ def write_subtitles(directory, rows, font_name):
         start, end = ((value + 5) // 10 * 10 for value in (start, end))
         if start == end:
             raise ValueError(f"{segment.segment_id} 太短，无法按 ASS 精度表示。")
-        literal = str.maketrans({"\\": "＼", "{": "｛", "}": "｝"})
-        text = zh.translate(literal) + r"\N" + en.translate(literal)
-        ass.append(
-            f"Dialogue: 0,{timestamp(start, ass=True)},{timestamp(end, ass=True)},"
-            f"Default,,0,0,0,,{text}"
-        )
+        ass.append(ass_dialogue(timestamp(start, ass=True), timestamp(end, ass=True), zh, en, layout))
     (directory / "bilingual.srt").write_text("\n\n".join(srt) + "\n", encoding="utf-8")
-    header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-WrapStyle: 0
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},48,&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,3,0,2,100,100,65,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+    header = ass_header(font_name, width, height, style)
     (directory / "burnin.ass").write_text(header + "\n".join(ass) + "\n", encoding="utf-8")
 
 
@@ -251,13 +242,19 @@ def compose(stage, video, dub, handoff, ffmpeg, ffprobe):
         raise ValueError("合成结果没有预期的 H.264 视频和 AAC 配音。")
 
 
-def render(job, work, copy_path, ffmpeg, ffprobe):
+def render(job, work, copy_path, ffmpeg, ffprobe, *, subtitle_style=DEFAULT_STYLE,
+           subtitle_layout=DEFAULT_LAYOUT):
     video, segments, handoff = inspect_b_job(job, ffprobe)
     if handoff != read_json(work / "handoff.json") or [s.model_dump() for s in segments] != read_json(
         work / "segments/segments.json"
     ):
         raise ValueError("交接分段或 B 时间表已变化，请用新的工作目录重新 prepare。")
     rows = join_reviewed(segments, work / "translated/reviewed_blocks.json")
+    stream = b_media.choose_stream(b_media.probe(video, ffprobe)["streams"], "video",
+                                   handoff["video_stream_index"])
+    width, height = stream["width"], stream["height"]
+    if any(int(item.get("rotation", 0)) % 180 == 90 for item in stream.get("side_data_list", [])):
+        width, height = height, width
     copy = EditAssets.model_validate_json(copy_path.read_bytes())
     if not all(value.strip() for value in copy.model_dump().values()):
         raise ValueError("标题、简介和封面文案不能为空。")
@@ -272,7 +269,8 @@ def render(job, work, copy_path, ffmpeg, ffprobe):
         for name in ["subtitles", "cover", "video", "package", "fonts"]:
             (stage / name).mkdir(parents=True)
         shutil.copyfile(font, stage / "fonts" / font.name)
-        write_subtitles(stage / "subtitles", rows, font_name)
+        write_subtitles(stage / "subtitles", rows, font_name, width=width, height=height,
+                        style=subtitle_style, layout=subtitle_layout)
         write_cover(stage / "cover/cover.jpg", copy.cover_text, font)
         compose(stage, video, work / "audio/dub.wav", handoff, ffmpeg, ffprobe)
         shutil.rmtree(stage / "fonts")
@@ -310,6 +308,8 @@ def main():
         command.add_argument("--b-job", type=Path, required=True)
         command.add_argument("--work-dir", type=Path, required=True)
     sub.choices["render"].add_argument("--edit-assets", type=Path, required=True)
+    sub.choices["render"].add_argument("--subtitle-style", choices=STYLES, default=DEFAULT_STYLE)
+    sub.choices["render"].add_argument("--subtitle-layout", choices=LAYOUTS, default=DEFAULT_LAYOUT)
     args = parser.parse_args()
     try:
         ffprobe = b_media.tool_path("ffprobe", os.getenv("LOCALIZER_FFPROBE"))
@@ -324,7 +324,8 @@ def main():
                     ffmpeg = b_media.tool_path("ffmpeg")
                 else:
                     ffmpeg = get_ffmpeg_exe()
-            output = render(args.b_job, args.work_dir, args.edit_assets, ffmpeg, ffprobe)
+            output = render(args.b_job, args.work_dir, args.edit_assets, ffmpeg, ffprobe,
+                            subtitle_style=args.subtitle_style, subtitle_layout=args.subtitle_layout)
     except (b_media.MediaError, ValueError, OSError, KeyError, TypeError,
             AttributeError, subprocess.SubprocessError, wave.Error, EOFError) as exc:
         parser.exit(1, f"{exc}\n")
