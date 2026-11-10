@@ -1,6 +1,6 @@
 # probe_input 测试
 
-从仓库根运行 `python -m pytest tests/nodes/probe_input`，不直接执行测试文件，不修改 sys.path。
+从仓库根运行 `uv run pytest tests/nodes/probe_input`，不直接执行测试文件，不修改 sys.path。
 
 - `test_probe_input.py`：Pydantic 状态、媒体字段、非法输入及缺失公共工具。
 - `test_media.py`：真实 FFmpeg 合成音视频，检查正负音轨偏移、AAC 起声、总长度、错误媒体及覆盖保护。

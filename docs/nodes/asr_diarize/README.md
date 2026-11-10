@@ -1,5 +1,7 @@
 # asr_diarize（B）
 
+2026-11-10 更新：[uv 安装、依赖组与 Python 3.11 验证](B-uv-20261110.md)。当前安装与运行以 pyproject.toml、uv.lock、uv run 为准，历史 requirements 和旧环境命令不作为现行要求。
+
 按 architecture v1.2.0 整理；前序是 [probe_input](../probe_input/README.md)，后序是 C 的 build_blocks。
 
 ```python
@@ -27,15 +29,15 @@ delta = asr_diarize(GraphState(input_video="input.mp4"))
 ## 配置与环境
 
 - 模型路径相对仓库根解析，也接受绝对路径，不依赖当前目录。
-- community1_python 留空使用当前 Python，也可指定已准备 Pyannote 的独立 Python。设备 cpu/cuda 显式指定，不静默降级。
+- community1_python 保持为空，子进程沿用 uv 管理的当前 Python；禁止切换到另一个手工安装的解释器。Community-1 运行需同时启用 b-asr、speech extras。设备 cpu/cuda 显式指定，不静默降级。
 - ASR 需要 faster-whisper、兼容的 PyAV（此前验证 16.1.0）、spaCy 和 en_core_web_sm。Community-1 需要 pyannote.audio 与匹配的 Torch/Torchaudio；历史下载辅助工具还需 yt-dlp。
-- FFmpeg 和模型权重单独在本机准备。Community-1 需使用者本人同意访问条件并下载；节点只用本地模型，不上传音频、不自动下载。源码环境可用 python -m nodes.asr_diarize.community1_worker --prepare-model --allow-model-download 准备权重。
-- [environment/](environment/) 保存旧 Python 3.12 独立环境快照，不覆盖团队 Python 3.11 uv.lock，不代表 3.11 已验证。
+- FFmpeg 和模型权重单独在本机准备。Community-1 需使用者本人同意访问条件并下载；节点只用本地模型，不上传音频、不自动下载。可用 `uv run --extra speech python project/nodes/asr_diarize/community1_worker.py --prepare-model --allow-model-download` 准备权重。
+- [environment/](environment/) 保存旧 Python 3.12 独立环境快照，不覆盖团队 Python 3.11 uv.lock，不再作为安装入口；当前以 pyproject.toml、uv.lock 及 uv 验证记录为准。
 - DeepSeek 默认关闭，需显式 provider、联网授权和调用预算。配置不是付费调用授权，本次迁移没有新调用。
 
 ## 依赖和限制
 
-F 的 utils/paths.py、utils/io.py、utils/config.py、utils/artifacts.py 仍未提交实现。新入口遵循约定调用；缺少时明确报错。测试替身不代表 F 已交付或团队全流程已跑通。
+F 的 utils/paths.py、io.py、config.py、artifacts.py 已实现。B 已增加直接使用这些真实工具的联调用例；固定测试仍只替代模型输出，不替代该用例的公共服务。完整主图验收另行进行。
 
 共享 Segment 不允许空说话人，F/D 尚未确认未知编号语义，因此存在未知时抛 UNRESOLVED_SPEAKER；有未定时间短语则抛 UNTIMED_UTTERANCES。不猜测标签、不丢词来通过校验。其他语义风险仍需人工核对；共享 schema 没有复核字段，仅日志记录数量，不擅自新增字段。
 
@@ -44,8 +46,8 @@ F 的 utils/paths.py、utils/io.py、utils/config.py、utils/artifacts.py 仍未
 ## 测试与历史成果
 
 ```powershell
-python -m pytest tests/nodes/asr_diarize
-python -m pytest tests/nodes/probe_input
+uv run --extra b-asr pytest tests/nodes/asr_diarize
+uv run pytest tests/nodes/probe_input
 ```
 
 [测试说明](../../../tests/nodes/asr_diarize/README.md) · [迁移与验证](B-layout-v1.2.0.md)。真实模型测试显式启用，默认跳过，不下载或付费调用。

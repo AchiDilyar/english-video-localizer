@@ -18,6 +18,6 @@ delta = probe_input(GraphState(input_video="input.mp4"))
 
 `config/probe_input.toml` 可指定 ffmpeg/ffprobe 路径和绝对流索引；未指定时查找 PATH，再查仓库 `.tools/ffmpeg/bin`。`media.py` 是原媒体适配器，`prepare_tools.py` 是工具准备程序，不是团队 CLI。日志交给 CLI 初始化的统一 logger。
 
-F 的 paths/config/io 尚无实现。`integration.py` 只转发约定调用并明确报告缺失依赖，不提供 B 专用降级实现。
+F 的 paths/config/io 已实现。`integration.py` 转发公共工具调用，不提供 B 专用降级实现；新增真实 utils 测试验证配置、路径与 JSON 交付。
 
-测试：`python -m pytest tests/nodes/probe_input`。见 [测试说明](../../../tests/nodes/probe_input/README.md)。
+测试：`uv run pytest tests/nodes/probe_input`。见 [测试说明](../../../tests/nodes/probe_input/README.md)。

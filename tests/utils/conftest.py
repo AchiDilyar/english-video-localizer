@@ -1,14 +1,13 @@
 """tests/utils 的共享 fixture。
 
 按 architecture.md §9.1：测试运行时临时创建的目录放在 tests/tmp/。
-- 每次 pytest session 开始时清空 tests/tmp/；
-- 每个测试得到独立子目录 tests/tmp/<test_id>/；
+- 每次 session 仅分配自己的 utils 子目录，不清空其他角色的临时文件；
+- 每个测试得到该目录下的独立子目录；
 - session 结束后保留内容，便于排查。
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -16,16 +15,9 @@ import pytest
 from utils.paths import set_work_dir
 
 
-_TESTS_DIR = Path(__file__).resolve().parent.parent  # tests/
-TMP_ROOT = _TESTS_DIR / "tmp"
-
-
 @pytest.fixture(scope="session")
-def _tmp_root() -> Path:
-    if TMP_ROOT.exists():
-        shutil.rmtree(TMP_ROOT)
-    TMP_ROOT.mkdir(parents=True)
-    return TMP_ROOT
+def _tmp_root(tmp_path_factory) -> Path:
+    return tmp_path_factory.mktemp("utils")
 
 
 @pytest.fixture

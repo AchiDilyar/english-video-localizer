@@ -3,7 +3,7 @@ max_duration_sec = 7200
 audio_recheck = true
 community1_cache = "models/community-1-hf-cache"
 community1_device = "cpu"
-# Empty means the current Python. For an isolated environment, set its Python path.
+# Keep empty: the worker inherits the current uv-managed interpreter.
 community1_python = ""
 worker_timeout_sec = 7200
 semantic_provider = "none"

@@ -1,9 +1,9 @@
 # utils 测试
 
-运行：`python -m pytest tests/utils/`
+运行：`uv run pytest tests/utils/`
 
-临时目录：`tests/tmp/<test_id>/`，由 `conftest.py` 在 session 开始时清空、
-每个测试分配独立子目录；session 结束后保留，便于查看失败用例产生的文件。
+临时目录：由 pytest 在 `tests/tmp/pytest/` 下分配独立 utils 目录，每个测试再分配子目录。
+不清空整个 tests/tmp，不删除其他角色的日志；session 结束后保留，便于排查。
 
 ## conftest.py
 

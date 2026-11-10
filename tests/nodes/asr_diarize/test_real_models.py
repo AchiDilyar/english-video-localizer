@@ -29,7 +29,6 @@ def test_real_asr_uses_relocated_implementation():
 
 def test_real_community1_returns_json_without_result_file():
     options = node.ASROptions(
-        community1_python=os.environ.get("B_COMMUNITY1_PYTHON", ""),
         community1_device=os.environ.get("B_COMMUNITY1_DEVICE", "cpu"),
     )
     data = node.run_diarization(audio_fixture(), 16000, options)

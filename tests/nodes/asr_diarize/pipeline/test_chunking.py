@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("numpy", reason="Install B test dependencies with uv sync --extra b-asr")
+
 from dataclasses import dataclass
 import copy
 import io

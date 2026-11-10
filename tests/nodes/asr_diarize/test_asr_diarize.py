@@ -1,10 +1,15 @@
+import pytest
+pytest.importorskip("numpy", reason="Install B test dependencies with uv sync --extra b-asr")
+pytest.importorskip("spacy", reason="Install B test dependencies with uv sync --extra b-asr")
+pytest.importorskip("en_core_web_sm", reason="Install B test dependencies with uv sync --extra b-asr")
+pytest.importorskip("faster_whisper", reason="Install B test dependencies with uv sync --extra b-asr")
+
 import copy
 import json
 from pathlib import Path
 from types import SimpleNamespace
 import wave
 
-import pytest
 from langgraph.graph import END, START, StateGraph
 
 from contracts import GraphState, Segment
@@ -53,9 +58,7 @@ def test_unusable_handoff_is_rejected(sentence_table, kind):
         node.to_segments(sentence_table)
 
 
-@pytest.fixture
-def real_video(shared_services):
-    work, _, _ = shared_services
+def make_test_video(work):
     try:
         ffmpeg = media.tool_path("ffmpeg")
         media.tool_path("ffprobe")
@@ -66,6 +69,39 @@ def real_video(shared_services):
                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000:duration=2",
                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(work / "input.mp4")])
     return work
+
+
+@pytest.fixture
+def real_video(shared_services):
+    work, _, _ = shared_services
+    return make_test_video(work)
+
+
+def test_nodes_use_real_F_utils_for_config_paths_and_json(tmp_path, monkeypatch, sentence_table):
+    from utils import paths
+    from utils.io import read_artifact, write_artifact
+    from utils.config import load_config
+
+    # Model outputs alone are fixed; these are F's real config/path/io implementations.
+    monkeypatch.setattr(paths, "_work_dir", None)
+    paths.set_work_dir(str(tmp_path))
+    for folder in ["audio", "segments"]:
+        (tmp_path / folder).mkdir()
+    make_test_video(tmp_path)
+    assert integration.shared("io", "write_artifact") is write_artifact
+    assert integration.shared("config", "load_config") is load_config
+    monkeypatch.setattr(node, "recognize", lambda *args: copy.deepcopy(sentence_table))
+    monkeypatch.setattr(node, "run_diarization", lambda *args: turns())
+    initial = GraphState(input_video="input.mp4")
+    media_delta = probe_input(initial)
+    state = GraphState.model_validate({**initial.model_dump(), **media_delta})
+    delta = asr_diarize(state)
+    saved = read_artifact("segments")
+    assert saved == delta["segments"]
+    assert all(isinstance(segment, Segment) for segment in saved)
+    assert [segment.speaker_id for segment in saved] == ["spk_1", "spk_2", "spk_1"]
+    assert state.segments is None
+    assert Path(paths.artifact_path("source_audio")).is_file()
 
 
 def test_real_media_two_node_langgraph_uses_shared_contract(
@@ -126,6 +162,12 @@ def test_worker_failure_has_no_silent_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stderr="test worker failure"))
     with pytest.raises(RuntimeError, match="test worker failure"):
         node.run_diarization(tmp_path / "source.wav", 1000, node.ASROptions())
+
+
+def test_worker_rejects_a_separate_non_uv_python(tmp_path):
+    with pytest.raises(ValueError, match="current uv environment"):
+        node.run_diarization(tmp_path / "source.wav", 1000,
+                             node.ASROptions(community1_python=str(tmp_path / "other-python.exe")))
 
 
 def test_recognition_consumes_resolved_path_without_artifact_reconstruction(monkeypatch, tmp_path):

@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("numpy", reason="Install B test dependencies with uv sync --extra b-asr")
+
 import copy
 import unittest
 from nodes.asr_diarize.pipeline.diarization import assign_speakers,model_files,diarize

@@ -1,3 +1,7 @@
+import pytest
+pytest.importorskip("spacy", reason="Install B test dependencies with uv sync --extra b-asr")
+pytest.importorskip("en_core_web_sm", reason="Install B test dependencies with uv sync --extra b-asr")
+
 import copy
 import json
 from pathlib import Path

@@ -92,6 +92,8 @@ def run_diarization(audio: Path, duration_ms: int, options: ASROptions) -> dict:
 
     worker = Path(__file__).with_name("community1_worker.py")
     python = str(repository_path(options.community1_python)) if options.community1_python else sys.executable
+    if Path(python).resolve() != Path(sys.executable).resolve():
+        raise ValueError("Use the current uv environment with --extra speech; a separate Python is not supported")
     command = [python, str(worker), "--audio", str(audio), "--result-stdout",
                "--cache-dir", str(repository_path(options.community1_cache)),
                "--device", options.community1_device]
