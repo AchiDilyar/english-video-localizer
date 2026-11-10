@@ -1,0 +1,136 @@
+import json
+
+import httpx
+import pytest
+from contracts import GraphState, Segment, TranslatedSegment
+from nodes import _text_model
+from nodes.build_blocks import build_blocks
+from nodes.review_blocks import review_blocks
+from nodes.translate_blocks import translate_blocks
+from utils import paths
+from utils.io import read_artifact
+
+
+@pytest.fixture(autouse=True)
+def artifact_work_dir(tmp_path, monkeypatch):
+    for folder in ("segments", "translated"):
+        (tmp_path / folder).mkdir()
+    monkeypatch.setattr(paths, "_work_dir", None)
+    paths.set_work_dir(str(tmp_path))
+
+
+@pytest.fixture
+def source_state():
+    return GraphState(
+        segments=[
+            Segment(
+                segment_id="seg_0001",
+                speaker_id="spk_1",
+                start_ms=0,
+                end_ms=5_000,
+                text_en="This works only if the sample size is at least 12.",
+            ),
+            Segment(
+                segment_id="seg_0002",
+                speaker_id="spk_1",
+                start_ms=92_000,
+                end_ms=95_000,
+                text_en="Do not reduce the sample size.",
+            ),
+        ],
+    )
+
+
+def item(segment_id, subtitle, dub):
+    return {"segment_id": segment_id, "zh_subtitle": subtitle, "zh_dub": dub}
+
+
+def test_build_translate_review_handoff_preserves_both_blocks(source_state, monkeypatch):
+    calls = []
+
+    def answer(*, instruction, payload):
+        assert payload["terminology"] == {"sample size": "样本量"}
+        (row,) = payload["segments"]
+        segment_id = row["segment_id"]
+        is_review = "zh_dub" in row
+        calls.append((is_review, segment_id))
+        if segment_id == "seg_0002":
+            assert row["text_en"] == "Do not reduce the sample size."
+            return {"items": [item(segment_id, "不要减少样本量。", "别减少样本量。")]}
+        if not is_review:
+            assert row["duration_ms"] == 5_000
+            return {"items": [item(segment_id, "这种方法有效。", "这种方法有效。")]}
+        assert row["zh_dub"] == "这种方法有效。"
+        return {"items": [item(segment_id, "只有样本量至少为 12 时才有效。", "样本量至少为十二才有效。")]}
+
+    monkeypatch.setattr(_text_model, "request_json", answer)
+    state = source_state.model_copy(update=build_blocks(source_state))
+    state = state.model_copy(update=translate_blocks(state))
+    reviewed = review_blocks(state)["reviewed_blocks"]
+    assert read_artifact("translated_blocks") == state.translated_blocks
+    assert read_artifact("reviewed_blocks") == reviewed
+    assert GraphState.model_validate(
+        state.model_copy(update={"reviewed_blocks": reviewed}).model_dump()
+    ).reviewed_blocks == reviewed
+
+    assert calls == [
+        (False, "seg_0001"),
+        (False, "seg_0002"),
+        (True, "seg_0001"),
+        (True, "seg_0002"),
+    ]
+    assert [(row.segment_id, row.block_id) for row in reviewed] == [
+        ("seg_0001", "blk_0001"), ("seg_0002", "blk_0002")
+    ]
+    assert reviewed[0].zh_subtitle == "只有样本量至少为 12 时才有效。"
+    assert reviewed[0].zh_dub == "样本量至少为十二才有效。"
+    assert reviewed[1].zh_subtitle == "不要减少样本量。"
+    assert reviewed[1].zh_dub == "别减少样本量。"
+    assert state.translated_blocks[0].zh_dub == "这种方法有效。"
+
+
+@pytest.mark.parametrize("items", [
+    [],
+    [item("seg_0002", "错误片段", "错误片段")],
+    [item("seg_0001", "字幕", "口播"), item("seg_0001", "重复字幕", "重复口播")],
+    [item("seg_0001", "字幕", "  ")],
+])
+def test_translate_rejects_bad_model_output(source_state, monkeypatch, items):
+    monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"items": items})
+    with pytest.raises(ValueError):
+        translate_blocks(source_state.model_copy(update=build_blocks(source_state)))
+
+
+def test_review_rejects_an_incomplete_response(source_state, monkeypatch):
+    state = source_state.model_copy(update=build_blocks(source_state))
+    state.translated_blocks = [
+        TranslatedSegment(block_id="blk_0001", **item("seg_0001", "字幕一", "口播一")),
+        TranslatedSegment(block_id="blk_0002", **item("seg_0002", "字幕二", "口播二")),
+    ]
+    monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"items": []})
+    with pytest.raises(ValueError, match="seg_0001"):
+        review_blocks(state)
+
+
+def test_request_uses_the_shared_deepseek_adapter(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
+    client_class = httpx.Client
+
+    def respond(request):
+        body = json.loads(request.content)
+        assert request.url.host == "api.deepseek.com"
+        assert request.headers["Authorization"] == "Bearer test-key"
+        assert body["model"] == "test-model"
+        assert body["response_format"] == {"type": "json_object"}
+        assert json.loads(body["messages"][1]["content"]) == {"segments": []}
+        return httpx.Response(200, json={"choices": [{
+            "finish_reason": "stop", "message": {"content": '{"items": []}'},
+        }]})
+
+    monkeypatch.setattr(
+        httpx, "Client", lambda **options: client_class(
+            transport=httpx.MockTransport(respond), **options
+        )
+    )
+    assert _text_model.request_json(instruction="测试", payload={"segments": []}) == {"items": []}
