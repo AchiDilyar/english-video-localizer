@@ -39,14 +39,30 @@ b-legacy = [
 dev = ["imageio-ffmpeg>=0.8,<1", "pytest>=8,<10", "ruff>=0.14,<1"]
 
 [build-system]
-requires = ["uv_build>=0.9,<0.13"]
-build-backend = "uv_build"
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
 
 [project.scripts]
 run-input = "cli:main"
 
-[tool.uv.build-backend]
-module-name = "video_localizer"
+[tool.setuptools]
+py-modules = ["cli"]
+package-dir = {"" = "project"}
+
+[tool.setuptools.packages.find]
+where = ["project"]
+include = [
+    "graph",
+    "graph.*",
+    "contracts",
+    "contracts.*",
+    "nodes",
+    "nodes.*",
+    "mocks",
+    "mocks.*",
+    "utils",
+    "utils.*",
+]
 
 [tool.uv.sources]
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
