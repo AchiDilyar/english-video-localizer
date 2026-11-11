@@ -4,7 +4,7 @@
 
 **当前阶段：项目启动。** 先冻结接口并用模拟响应跑通工作流，随后接入真实模型，最后用已授权视频验收。
 
-**B 节点（已按 architecture v1.2.0 整理）**：[probe_input](docs/nodes/probe_input/README.md) · [asr_diarize](docs/nodes/asr_diarize/README.md) · [迁移与验证记录](docs/nodes/asr_diarize/B-layout-v1.2.0.md)。两个入口为 `nodes.probe_input.probe_input` 和 `nodes.asr_diarize.asr_diarize`。测试统一使用 `uv run --extra b-asr pytest tests/nodes`；F 的公共工具已实现，B 已增加真实 utils 联调用例；完整主图联调另行验收。
+**B 节点（已按 architecture v1.2.0 整理）**：[probe_input](docs/nodes/probe_input/README.md) · [asr_diarize](docs/nodes/asr_diarize/README.md) · [验证与待办](docs/nodes/asr_diarize/validation.md)。两个入口为 `nodes.probe_input.probe_input` 和 `nodes.asr_diarize.asr_diarize`。测试统一使用 `uv run --extra b-asr pytest tests/nodes`；F 的公共工具已实现，B 已增加真实 utils 联调用例；完整主图联调另行验收。
 
 **B→C→F 阶段联调**：[主图入口与交付说明](docs/graph/README.md)。`from graph import build_graph` 已连接基本版拓扑，新增 14 秒双人短片及 11 条共享分段。接口联调使用缓存 B 预测与固定文本模型响应，不代表真实翻译、D/E 或整片成片验收。
 

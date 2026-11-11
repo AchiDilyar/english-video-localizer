@@ -1,6 +1,6 @@
 # asr_diarize 测试
 
-当前依赖与验证见 docs/nodes/asr_diarize/B-uv-20261110.md；使用 b-asr extra 执行完整 B 测试。不带语音依赖时明确跳过相应模块，不能算作完整 B 验证。已有真实 F utils 集成测试，不再只有公共工具替身。
+当前依赖与验证见 docs/nodes/asr_diarize/validation.md；使用 b-asr extra 执行完整 B 测试。不带语音依赖时明确跳过相应模块，不能算作完整 B 验证。已有真实 F utils 集成测试，不再只有公共工具替身。
 
 从仓库根运行 `uv run --extra b-asr pytest tests/nodes/asr_diarize`。不要直接运行测试文件。
 
@@ -10,6 +10,6 @@
 - 固定小样例在 `tests/data/asr_diarize/`；大样片在被忽略的 `tests/data/_large/asr_diarize/`，普通回归不依赖它们。
 - 临时数据和日志在 `tests/tmp/`；conftest 为 pytest 的 tmp_path 设置专用 basetemp。原有 jobs/media 证据不修改。
 
-Python 依赖由 b-asr extra 和 dev 组统一提供；媒体测试另需本机 FFmpeg。当前 Python 3.11 + uv 已验证；`docs/nodes/asr_diarize/environment/` 中旧 Python 3.12 快照只保留历史证据，不作为现行安装入口。
+Python 依赖由 b-asr extra 和 dev 组统一提供；媒体测试另需本机 FFmpeg。当前 Python 3.11 + uv 已验证；当前依赖以 pyproject.toml 和 uv.lock 为准，历史环境教训仅保留在 docs/nodes/asr_diarize/archive/ 的摘要中。
 
 模型替身测试不等于识别准确性验收，也不代替 D/F 联调。真实模型验证见 test_real_models.py，默认跳过，不下载权重或调用付费服务。
