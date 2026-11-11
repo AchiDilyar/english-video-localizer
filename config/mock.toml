@@ -1,11 +1,11 @@
 # mock 节点开关。键为节点名，值为布尔；未列出的节点默认为真实实现。
 # 由 F 维护，其它角色不可修改。
 
-probe_input = true
-asr_diarize = true
-build_blocks = true
-translate_blocks = true
-review_blocks = true
+probe_input = false
+asr_diarize = false
+build_blocks = false
+translate_blocks = false
+review_blocks = false
 tts_align = true
 edit_assets = true
 subtitle_cover = true
