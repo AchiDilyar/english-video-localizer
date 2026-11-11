@@ -1,10 +1,9 @@
-"""Translate each block into subtitles and dubbing text."""
+"""Translate each block into subtitles and dubbing text using the node's adapter."""
 
 from contracts import GraphState, TranslatedSegment
 from utils.io import write_artifact
 
 from . import _text_model
-
 
 TRANSLATE_PROMPT = (
     "将每个英文片段翻译成简体中文，遵循术语表，结合本块上下文理解语义。"

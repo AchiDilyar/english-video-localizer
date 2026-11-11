@@ -11,9 +11,9 @@ from pathlib import Path
 
 from contracts import GraphState, Segment
 from graph import build_graph, registry
-from nodes import _text_model
 from nodes.asr_diarize import node as asr_node
 from nodes.probe_input import media
+from nodes.translate_blocks import _text_model
 from pydantic import TypeAdapter
 from utils import paths
 from utils.io import read_artifact

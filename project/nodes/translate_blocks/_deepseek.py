@@ -1,0 +1,62 @@
+"""DeepSeek Chat Completions adapter for JSON responses."""
+
+import json
+
+import httpx
+
+DEFAULT_MODEL = "deepseek-flash"
+CHAT_URL = "https://api.deepseek.com/chat/completions"
+
+
+class DeepSeekError(RuntimeError):
+    """An API or response-format error safe to show to an operator."""
+
+
+def generate_json(
+    client: httpx.Client,
+    system_prompt: str,
+    payload: dict,
+    *,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 4096,
+) -> dict:
+    if not api_key.strip():
+        raise DeepSeekError("请在本地 .env 中配置 DEEPSEEK_API_KEY。")
+    try:
+        response = client.post(
+            CHAT_URL,
+            headers={"Authorization": f"Bearer {api_key.strip()}"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+                "thinking": {"type": "disabled"},
+                "response_format": {"type": "json_object"},
+                "max_tokens": max_tokens,
+            },
+        )
+    except httpx.RequestError:
+        raise DeepSeekError("无法连接 DeepSeek API，请检查网络并重试。") from None
+
+    if response.is_error:
+        hints = {
+            401: "请检查密钥是否有效。",
+            402: "请检查 API 账户余额。",
+            429: "请求过于频繁，请稍后重试。",
+        }
+        hint = hints.get(response.status_code, "请检查服务状态和模型配置。")
+        raise DeepSeekError(f"DeepSeek API 返回 HTTP {response.status_code}。{hint}")
+
+    try:
+        choice = response.json()["choices"][0]
+        if choice["finish_reason"] == "length":
+            raise DeepSeekError("DeepSeek 输出被截断，请缩小批次或提高输出上限。")
+        result = json.loads(choice["message"]["content"])
+    except (ValueError, TypeError, KeyError, IndexError):
+        raise DeepSeekError("DeepSeek 返回了空白或无效的 JSON，请重试。") from None
+    if not isinstance(result, dict):
+        raise DeepSeekError("DeepSeek 响应必须是一个 JSON 对象。")
+    return result

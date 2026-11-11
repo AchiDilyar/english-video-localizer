@@ -1,14 +1,36 @@
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
 from contracts import GraphState, Segment, TranslatedSegment
-from nodes import _text_model
 from nodes.build_blocks import build_blocks
 from nodes.review_blocks import review_blocks
-from nodes.translate_blocks import translate_blocks
+from nodes.translate_blocks import _text_model, translate_blocks
 from utils import paths
 from utils.io import read_artifact
+
+
+def test_c_nodes_import_without_src():
+    project = Path(__file__).resolve().parents[2] / "project"
+    script = """
+import sys
+
+sys.path.insert(0, sys.argv[1])
+sys.modules['video_localizer'] = None
+from nodes.translate_blocks import translate_blocks
+from nodes.review_blocks import review_blocks
+assert callable(translate_blocks) and callable(review_blocks)
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", script, str(project)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture(autouse=True)
@@ -112,9 +134,20 @@ def test_review_rejects_an_incomplete_response(source_state, monkeypatch):
         review_blocks(state)
 
 
-def test_request_uses_the_shared_deepseek_adapter(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
-    monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
+@pytest.mark.parametrize("config_location", ["environment", "installed"])
+def test_request_uses_the_node_local_deepseek_adapter(monkeypatch, tmp_path, config_location):
+    if config_location == "installed":
+        package = tmp_path / "venv/Lib/site-packages/nodes/translate_blocks/_text_model.py"
+        monkeypatch.setattr(_text_model, "__file__", str(package))
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+        (tmp_path / ".env").write_text(
+            "DEEPSEEK_API_KEY=test-key\nDEEPSEEK_MODEL=test-model\n", encoding="utf-8"
+        )
+    else:
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+        monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
     client_class = httpx.Client
 
     def respond(request):

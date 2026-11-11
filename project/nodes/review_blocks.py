@@ -6,8 +6,7 @@ from contracts import GraphState, Segment, TranslatedSegment
 from pydantic import BaseModel, ConfigDict, Field
 from utils.io import write_artifact
 
-from . import _text_model
-
+from .translate_blocks import _text_model
 
 REVIEW_PROMPT = (
     "对照英文和术语表逐条核对中文字幕及口播稿。"

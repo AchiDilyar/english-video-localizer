@@ -6,8 +6,8 @@ from pathlib import Path
 import httpx
 from contracts import Segment, TranslatedSegment
 from dotenv import load_dotenv
-from video_localizer.deepseek import DEFAULT_MODEL, generate_json
 
+from ._deepseek import DEFAULT_MODEL, generate_json
 
 OUTPUT_FORMAT = (
     '输出 JSON 对象 {"items": [{"segment_id": "...", '
@@ -17,7 +17,8 @@ OUTPUT_FORMAT = (
 
 
 def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT_FORMAT) -> dict:
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    checkout_env = Path(__file__).resolve().parents[3] / ".env"
+    load_dotenv(checkout_env if checkout_env.is_file() else Path.cwd() / ".env")
     with httpx.Client(timeout=60.0) as client:
         return generate_json(
             client,

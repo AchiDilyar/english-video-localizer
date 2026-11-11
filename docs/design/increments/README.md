@@ -24,6 +24,7 @@
 | `development.md` | E | 待确认 | `docs/development.md` | 待定 | F不理解该文档的作用，等待进一步说明 | `increments/development-doc.md` |
 | 拆字幕样式 / 封面为独立节点 | E | 待确认 | `workflow.md` / WebUI | 待定 | 需 E 澄清是 UI 分组还是节点变更 | — |
 | `e_handoff.py` | E | 待确认 | `project/e_handoff.py` | 待定 | 需改为消费 `segments/segments.json` | `increments/e-handoff.md` |
+| 审校问题清单与按片段定向返工 | C | 待接入 | `project/nodes/review_blocks.py`、`tests/nodes/test_review_blocks.py` | 待定 | 已提供问题清单、退回判断和局部修复函数；当前主图未调用，提请 F 评估保留为独立增量 | [c-targeted-repair.md](c-targeted-repair.md) |
 
 **“进主图”取值：**
 - **是**：已接入主图；
