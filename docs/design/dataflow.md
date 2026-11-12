@@ -28,7 +28,7 @@
 | 产物的程序内数据结构与磁盘路径 | 第 3 节 产物表 | 产物在流程中的数据结构、是否落盘及落盘路径 |
 | 工作目录结构 | 第 4 节 工作目录结构 | 任务工作目录下各子目录和文件命名 |
 | 数据流规则 | 第 5 节 数据流规则 | ID 规则、时间轴规则、不可修改字段、路径使用规则等 |
-| 最终产物 | 第 6 节 最终产物说明 | 唯一最终产物是最终 ZIP |
+| 最终产物 | 第 6 节 最终产物说明 | 唯一最终产物是成片`final_video` |
 
 ### 1.3 文档引用约定
 
@@ -47,7 +47,7 @@
 - **逻辑对象**：在流程中传递的结构化数据，对应 `contracts/` 下的 Pydantic 模型；
 - **磁盘文件**：落盘保存的媒体、字幕、图片、清单或压缩包，流程中通过名称和文件名访问。
 
-`GraphState` 是流程顶层状态容器，保存所有逻辑对象，以及输入视频和最终 ZIP 的文件名字符串。
+`GraphState` 是流程顶层状态容器，保存所有逻辑对象，以及输入视频的文件名字符串。
 
 二进制媒体内容不进入 `GraphState`。落盘产物如果路径唯一确定，其路径不放入 `GraphState` 保存，使用时由 utils 按名称生成路径。需要落盘的结构化对象既进入 `GraphState`，也同步写为 JSON 文件；是否落盘见第 3 节产物表。
 
@@ -61,8 +61,6 @@
 | `TranslationBlock` | 翻译与审校的单位 |
 | `TranslatedSegment` | 翻译结果与审校结果的元素 |
 | `TTSClip` | 逐段 TTS 音频记录 |
-| `EditAssets` | 标题、简介和封面文案 |
-| `PackageManifest` | 发布包内文件清单 |
 
 说明：
 
@@ -88,13 +86,9 @@
 | 分段音频清单 | `tts_clips` | 逐段中文口播音频的元数据清单 | `list[TTSClip]` | `tts/clips.json` |
 | 分段音频文件 | `tts_audio` | 逐段中文口播 WAV 音频 | - | `tts/`，文件名由 `TTSClip.audio_path` 提供 |
 | 中文配音音轨 | `dub_audio` | 组装后的整条中文配音 | - | `audio/dub.wav` |
-| 发布文案 | — | 标题、简介、封面文案 | `EditAssets` | 不落盘 |
 | 双语 SRT | `bilingual_srt` | 发布用双语字幕 | - | `subtitles/bilingual.srt` |
 | 烧录字幕 | `burnin_subtitle` | 供 FFmpeg 烧录的字幕 | - | `subtitles/burnin.ass` |
-| 封面图 | `cover_image` | 中文封面 | - | `cover/cover.jpg` |
 | 成片 | `final_video` | 中文配音成片 | - | `video/final.mp4` |
-| 发布包清单 | `manifest` | 发布包内文件清单 | `PackageManifest` | `package/manifest.json` |
-| 最终 ZIP | `final_zip` | 对外交付的发布包 | - | `package/final.zip` |
 
 补充说明：
 
@@ -126,13 +120,8 @@ work_dir/
   subtitles/
     bilingual.srt        # 发布用双语字幕
     burnin.ass           # 烧录用字幕
-  cover/
-    cover.jpg            # 封面图
   video/
     final.mp4            # 中文配音成片
-  package/
-    manifest.json        # 发布包清单，内容模型 PackageManifest
-    final.zip          # 最终 ZIP
   logs/
     run.log              # 运行日志（运行副产品，非产物）
 ```
@@ -141,7 +130,7 @@ work_dir/
 
 - 工作目录必须预先存在；CLI 在初始化时创建子目录，节点不创建任何目录。
 - 输入视频位于工作目录根目录下，不在上述目录树中（目录树只列出子目录）。文件名由 CLI 提供，默认 `input.mp4`。
-- 媒体信息、术语表、发布文案不落盘，因此不出现在目录树中。
+- 媒体信息、术语表不落盘，因此不出现在目录树中。
 - `GraphState` 不落盘，不在此目录树中。
 - `logs/run.log` 是运行日志，由 CLI 初始化、贯穿整次运行；它不是流程产物，不进入第 3 节产物表，不被节点消费，路径由 CLI 直接构造。
 
@@ -178,8 +167,8 @@ utils 提供三类函数：
 4. 写磁盘操作应当遵循5.1节的路径使用规则。
 5. 写磁盘失败时直接抛出异常，图终止，State 不合并该节点的增量；不存在“State 已更新但磁盘未写”的中间状态。
 6. 磁盘 JSON 是持久化副本和调试依据，不是节点间传递数据的通道；节点间传递以 `GraphState` 中的对象为准。
-7. 媒体信息、术语表、发布文案不落盘，只在 `GraphState` 中传递。
-8. 二进制媒体产物（音频、视频、图片、字幕、ZIP）的内容不进入 `GraphState`。
+7. 媒体信息、术语表不落盘，只在 GraphState 中传递
+8. 二进制媒体产物（音频、视频、字幕）的内容不进入 `GraphState`。
 9. `GraphState` 在基本版不落盘。若后续版本需要落盘（如检查点），按照5.1节的规则进行更改与管理。
 
 ### 5.3 数据契约规则
@@ -223,8 +212,10 @@ utils 提供三类函数：
 
 ## 6. 最终产物说明
 
-- 最终 ZIP 是唯一对外交付的最终产物。
-- 最终 ZIP 包含以下五项：`final_video（video/final.mp4）`、`bilingual_srt（subtitles/bilingual.srt）`、`cover_image（cover/cover.jpg）`、`edit_assets（edit_assets.json）`、`manifest（manifest.json）`。`PackageManifest.entries` 必须完整列出以上五项，且包含 `manifest.json` 自身。
-- 其余产物（`dub_audio`、`source_audio`、`burnin_subtitle`、`tts_audio`、`tts_clips`、`segments`、`blocks`、`translated_blocks`、`reviewed_blocks`）为中间产物或调试副本，不进 ZIP。
-- `package_zip` 完成后，CLI 输出运行状态与最终产物路径；CLI 出口的具体约定见 `architecture.md`。
-- `package_zip` 完成后主流程不再做业务后处理。
+- 唯一对外交付的最终产物是 `final_video`，由 `compose_video` 落盘到 `video/final.mp4`。
+
+- `compose_video` 完成后主流程进入 END。
+
+- 双语 SRT、烧录字幕、中文配音音轨、分段音频、分段与翻译审校 JSON 等均为中间产物或调试副本，不构成对外交付的最终产物。
+
+- CLI 输出运行状态与 `final_video` 的路径。

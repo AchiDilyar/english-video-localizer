@@ -5,9 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from .block import TranslationBlock
-from .edit import EditAssets
 from .media import MediaInfo
-from .package import PackageManifest
 from .segment import Segment
 from .translated import TranslatedSegment
 from .tts import TTSClip
@@ -30,5 +28,3 @@ class GraphState(BaseModel):
     translated_blocks: list[TranslatedSegment] | None = None
     reviewed_blocks: list[TranslatedSegment] | None = None
     tts_clips: list[TTSClip] | None = None
-    edit_assets: EditAssets | None = None
-    manifest: PackageManifest | None = None

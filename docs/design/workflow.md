@@ -78,11 +78,8 @@
 | `translate_blocks` | C | 翻译智能体为每个分段生成中文字幕文本和中文口播稿 | 翻译块、术语表 | 翻译结果 |
 | `review_blocks` | C | 审校智能体检查术语一致性和明显错漏，输出可用译文 | 翻译结果、分段结果 | 审校结果 |
 | `tts_align` | D | 按说话人音色合成中文口播音频，测时长并对齐原时间窗，组装整条中文配音音轨。音色映射需要作为配置项维护。 | 审校结果 | 分段音频清单、分段音频文件、中文配音音轨 |
-| `edit_assets` | E | 中文编辑智能体生成标题、简介和封面文案 | 审校结果、媒体信息 | 发布文案 |
-| `subtitle_cover` | E | 生成双语 SRT、烧录字幕和封面图 | 审校结果、发布文案 | 双语 SRT、烧录字幕、封面图 |
+| `subtitle_cover` | E | 生成双语 SRT、烧录字幕 | 审校结果 | 双语 SRT、烧录字幕 |
 | `compose_video` | E | 用中文配音替换原音轨，烧录双语字幕，合成中文配音成片 | 输入视频、中文配音音轨、烧录字幕 | 成片 |
-| `collect_manifest` | F | 汇总发布包产物清单，不重新生成业务产物 | 各产物 | 发布包清单 |
-| `package_zip` | E | 按发布包清单打包 ZIP | 发布包清单、各产物 | 最终 ZIP |
 
 ---
 
@@ -102,16 +99,12 @@ flowchart TD
     N4 --> N5[review_blocks]
 
     N5 --> N6[tts_align]
-    N5 --> N7[edit_assets]
     N5 --> N8[subtitle_cover]
-    N7 --> N8
 
     N6 --> N9[compose_video]
     N8 --> N9
 
-    N9 --> N10[collect_manifest]
-    N10 --> N11[package_zip]
-    N11 --> END((END))
+    N9 --> END((END))
 
     END --> OUT[CLI收尾: 读取最终结果<br/>输出运行状态与最终产物路径]
 ```
@@ -119,11 +112,9 @@ flowchart TD
 图说明：
 
 - 实线表示依赖关系，箭头方向为执行顺序。
-- `tts_align`、`edit_assets`、`subtitle_cover` 三者在 `review_blocks` 之后可并行。
-- `subtitle_cover` 额外等待 `edit_assets`，因为封面图需要发布文案。
+- `tts_align`、`subtitle_cover` 三者在 `review_blocks` 之后可并行。
 - `compose_video` 等待 `tts_align` 和 `subtitle_cover`。
-- `collect_manifest` 等待所有发布包产物就绪。
-- `package_zip` 是最后一个业务节点，完成后图进入 `END`。
+- `compose_video` 是最后一个业务节点，完成后图进入 `END`。
 - CLI 入口出口的具体约定见 `architecture.md`。
 
 ---
@@ -133,6 +124,7 @@ flowchart TD
 本版明确**不包含**：
 
 - 双入口（仅本地 MP4，不含 YouTube 链接）；
+- 中文编辑智能体（标题、简介、封面文案）与封面图；
 - 错译退回、配音超时退回等异常分支；
 - 中断续跑与 SQLite 检查点；
 - 网页界面；

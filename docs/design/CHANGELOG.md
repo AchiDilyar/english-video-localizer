@@ -179,3 +179,26 @@
 
 ### 修改原因
 - 原第 6 节仅以“发布包内文件或中间产物”笼统表述，未逐项说明哪些进 ZIP；`dub_audio` 是否进 ZIP 无法从文档确定，导致 `package_zip` 实现与文档可能不一致。
+
+## 2026-11-12 refactor(design): 删除 edit_assets、collect_manifest、package_zip，最终产物改为成片
+
+### 版本变更
+-> `v1.4.0`
+
+### 涉及文档
+- `workflow.md`
+- `dataflow.md`
+- `architecture.md`
+- `contracts/`
+
+### 修改内容
+- 删除 `edit_assets`、`collect_manifest`、`package_zip` 节点；节点数 11 → 8；`compose_video` 为最后一个业务节点，完成后直接进入 `END`。
+- 删除 `EditAssets`、`PackageManifest`、`ManifestEntry` 数据类，及 `GraphState.edit_assets`、`GraphState.manifest` 字段。
+- 删除 `cover_image`、`manifest`、`final_zip` 产物和 `cover/`、`package/` 目录；基础版不再生成 ZIP。
+- `subtitle_cover` 只生成双语 SRT 和烧录字幕，不再依赖发布文案。
+- 最终输出改为 `compose_video` 落盘的 `final_video`；CLI 输出 `final_video` 路径。
+- `architecture.md` 新增第 11 节“外部工具管理”（FFmpeg/ffprobe 查找顺序与失败行为），第 1.2 节事实源表补对应条目。
+
+### 修改原因
+- 基础版不需要中文编辑智能体、封面图和发布包 ZIP，最终成片即可交付；E 提出、F 同意。封面、标题/简介、ZIP 打包作为可选增量后续评估。
+- FFmpeg 路径规范统一，避免各节点查找顺序与失败行为不一致。
