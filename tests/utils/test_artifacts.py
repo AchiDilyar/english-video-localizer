@@ -13,18 +13,17 @@ EXPECTED = {
     "input_video", "source_audio", "segments", "blocks",
     "translated_blocks", "reviewed_blocks",
     "tts_clips", "tts_audio", "dub_audio",
-    "bilingual_srt", "burnin_subtitle", "cover_image",
-    "final_video", "manifest", "final_zip",
+    "bilingual_srt", "burnin_subtitle", "final_video",
 }
 
 JSON_ARTIFACTS = {
     "segments", "blocks", "translated_blocks", "reviewed_blocks",
-    "tts_clips", "manifest",
+    "tts_clips",
 }
 
 BINARY_ARTIFACTS = {
     "input_video", "source_audio", "tts_audio", "dub_audio",
-    "bilingual_srt", "burnin_subtitle", "cover_image", "final_video", "final_zip",
+    "bilingual_srt", "burnin_subtitle", "final_video",
 }
 
 

@@ -1,6 +1,6 @@
 """真实编译 build_graph，验证当前配置下图可构建。
 
-当前 config/mock.toml 全部为 true 且 mocks/ 已交付，本测试应当通过。
+当前 config/mock.toml 中配置为 true 的节点对应 mocks/ 已交付，本测试应当通过。
 预期寿命：B/C/D/E 节点交付并切真实后，若 nodes/ 未就绪，本测试会失败，
 属预期；届时确认 nodes/ 已就绪即恢复。
 """

@@ -1,4 +1,4 @@
-"""Connect the v1.3 basic workflow; no repair loops or business processing."""
+"""Connect the v1.4 basic workflow; no repair loops or business processing."""
 from contracts import GraphState
 from langgraph.graph import END, START, StateGraph
 
@@ -11,11 +11,8 @@ WORKFLOW_EDGES = (
     ("build_blocks", "translate_blocks"),
     ("translate_blocks", "review_blocks"),
     ("review_blocks", "tts_align"),
-    ("review_blocks", "edit_assets"),
-    (("review_blocks", "edit_assets"), "subtitle_cover"),
+    ("review_blocks", "subtitle_cover"),
     (("tts_align", "subtitle_cover"), "compose_video"),
-    ("compose_video", "collect_manifest"),
-    ("collect_manifest", "package_zip"),
 )
 
 
@@ -35,5 +32,5 @@ def build_graph():
     graph.add_edge(START, "probe_input")
     for source, target in WORKFLOW_EDGES:
         graph.add_edge(list(source) if isinstance(source, tuple) else source, target)
-    graph.add_edge("package_zip", END)
+    graph.add_edge("compose_video", END)
     return graph.compile()

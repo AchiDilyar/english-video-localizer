@@ -15,7 +15,7 @@
 验证 `ARTIFACT_SPECS` 与 `dataflow.md` §3 产物表一致：
 - 登记的产物名称集合完整；
 - JSON 产物（`segments`、`blocks`、`translated_blocks`、`reviewed_blocks`、
-  `tts_clips`、`manifest`）有非 None 的校验类型且路径为 `fixed`；
+  `tts_clips`）有非 None 的校验类型且路径为 `fixed`；
 - 二进制产物校验类型为 None；
 - `fixed` 必须有非空 path（构造时 `ValidationError`）；
 - 规格不可变（赋值 `ValidationError`）。

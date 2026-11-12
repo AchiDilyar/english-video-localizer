@@ -10,11 +10,12 @@ import shutil
 from pathlib import Path
 
 import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+
 from contracts import GraphState
 from utils.io import read_artifact
 from utils.paths import set_work_dir
-
-REPO = Path(__file__).resolve().parents[2]
 
 SEGMENTS_SRC = REPO / "tests" / "data" / "asr_diarize" / "real_dialogue" / "segments.json"
 
@@ -25,7 +26,7 @@ def work_dir(tmp_path):
     w = tmp_path / "work"
     w.mkdir()
     for d in ("audio", "segments", "translated", "tts", "subtitles",
-              "cover", "video", "package", "logs"):
+              "video", "logs"):
         (w / d).mkdir()
     set_work_dir(str(w))
     return w
@@ -55,6 +56,7 @@ def llm_stub(monkeypatch):
             {
                 "segment_id": s["segment_id"],
                 "zh_subtitle": s.get("zh_subtitle") or f"字幕-{s['segment_id']}",
+                "zh_dub": s.get("zh_dub") or f"口播-{s['segment_id']}",
             }
             for s in segs
         ]

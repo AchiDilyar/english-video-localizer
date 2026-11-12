@@ -33,7 +33,7 @@ def tmp_dir(_tmp_root: Path, request) -> Path:
 def work_dir(tmp_dir: Path) -> Path:
     """在 tmp_dir 下创建全部子目录，并设为当前工作目录。"""
     for sub in ("audio", "segments", "translated", "tts",
-                "subtitles", "cover", "video", "package"):
+                "subtitles", "video"):
         (tmp_dir / sub).mkdir(exist_ok=True)
     set_work_dir(str(tmp_dir))
     return tmp_dir

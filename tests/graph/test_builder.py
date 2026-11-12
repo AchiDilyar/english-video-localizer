@@ -36,7 +36,7 @@ def _initial_state():
 
 
 def test_all_nodes_registered(monkeypatch):
-    """workflow.md 第 3 节：11 个节点全部进入图。"""
+    """workflow.md 第 3 节：8 个节点全部进入图。"""
     _install_fake_nodes(monkeypatch, [])
     compiled = builder.build_graph()
 
@@ -63,14 +63,10 @@ def test_edges_match_workflow(monkeypatch):
         ("build_blocks", "translate_blocks"),
         ("translate_blocks", "review_blocks"),
         ("review_blocks", "tts_align"),
-        ("review_blocks", "edit_assets"),
         ("review_blocks", "subtitle_cover"),
-        ("edit_assets", "subtitle_cover"),
         ("tts_align", "compose_video"),
         ("subtitle_cover", "compose_video"),
-        ("compose_video", "collect_manifest"),
-        ("collect_manifest", "package_zip"),
-        ("package_zip", "__end__"),
+        ("compose_video", "__end__"),
     }
     assert actual == expected, (
         f"缺少边: {sorted(expected - actual)}；多余边: {sorted(actual - expected)}"
@@ -78,7 +74,7 @@ def test_edges_match_workflow(monkeypatch):
 
 
 def test_each_node_runs_exactly_once(monkeypatch):
-    """汇合节点有多个前驱，但不重复触发；11 个节点各执行一次。"""
+    """汇合节点有多个前驱，但不重复触发；8 个节点各执行一次。"""
     calls: list[str] = []
     _install_fake_nodes(monkeypatch, calls)
 
@@ -109,16 +105,15 @@ def test_linear_prefix_in_order(monkeypatch):
     )
 
 
-def test_subtitle_cover_waits_for_review_and_edit(monkeypatch):
-    """workflow.md 第 4 节：subtitle_cover 等待 review_blocks 和 edit_assets。"""
+def test_subtitle_cover_waits_for_review(monkeypatch):
+    """workflow.md 第 4 节：subtitle_cover 等待 review_blocks。"""
     calls: list[str] = []
     _install_fake_nodes(monkeypatch, calls)
 
     builder.build_graph().invoke(_initial_state())
 
-    assert calls.index("subtitle_cover") > calls.index("review_blocks")
-    assert calls.index("subtitle_cover") > calls.index("edit_assets"), (
-        f"subtitle_cover 应在 edit_assets 之后；实际: {calls}"
+    assert calls.index("subtitle_cover") > calls.index("review_blocks"), (
+        f"subtitle_cover 应在 review_blocks 之后；实际: {calls}"
     )
 
 
@@ -134,16 +129,16 @@ def test_compose_video_waits_for_tts_and_subtitle(monkeypatch):
     assert compose > calls.index("subtitle_cover")
 
 
-def test_tail_in_order(monkeypatch):
-    """workflow.md 第 4 节：compose_video → collect_manifest → package_zip → END。"""
+def test_compose_video_is_last_business_node(monkeypatch):
+    """workflow.md 第 4 节：compose_video 是最后一个业务节点，完成后进入 END。"""
     calls: list[str] = []
     _install_fake_nodes(monkeypatch, calls)
 
     builder.build_graph().invoke(_initial_state())
 
-    tail = ["compose_video", "collect_manifest", "package_zip"]
-    positions = [calls.index(n) for n in tail]
-    assert positions == sorted(positions), f"尾段顺序错误；实际尾段: {calls[-3:]}"
+    assert calls[-1] == "compose_video", (
+        f"compose_video 应为最后执行的业务节点；实际尾段: {calls[-3:]}"
+    )
 
 
 def test_nodes_receive_graph_state_and_increment_merges(monkeypatch):
@@ -153,7 +148,7 @@ def test_nodes_receive_graph_state_and_increment_merges(monkeypatch):
     def make(name):
         def execute(state):
             seen.append(type(state))
-            if name == "collect_manifest":
+            if name == "subtitle_cover":
                 return {"input_video": "rewritten.mp4"}
             return {}
 
@@ -187,10 +182,10 @@ def test_node_failure_stops_downstream(monkeypatch):
 def test_resolve_nodes_must_cover_all_names(monkeypatch):
     """build_graph 应拒绝不完整节点集合，防止静默漏节点。"""
     fake = {name: (lambda state: {}) for name in registry.NODE_NAMES}
-    fake.pop("package_zip")
+    fake.pop("compose_video")
     monkeypatch.setattr(builder, "resolve_nodes", lambda: fake)
 
-    with pytest.raises(ValueError, match="package_zip"):
+    with pytest.raises(ValueError, match="compose_video"):
         builder.build_graph()
 
 

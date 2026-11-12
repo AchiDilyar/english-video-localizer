@@ -8,9 +8,14 @@ from utils.config import load_config
 logger = logging.getLogger(__name__)
 
 NODE_NAMES = (
-    "probe_input", "asr_diarize", "build_blocks", "translate_blocks", "review_blocks",
-    "tts_align", "edit_assets", "subtitle_cover", "compose_video", "collect_manifest",
-    "package_zip",
+    "probe_input",
+    "asr_diarize",
+    "build_blocks",
+    "translate_blocks",
+    "review_blocks",
+    "tts_align",
+    "subtitle_cover",
+    "compose_video",
 )
 
 

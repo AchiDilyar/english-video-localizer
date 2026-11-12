@@ -26,9 +26,7 @@ _SUBDIRS = (
     "translated",
     "tts",
     "subtitles",
-    "cover",
     "video",
-    "package",
     "logs",
 )
 
@@ -75,8 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         initial_state = GraphState(input_video=args.input)
         build_graph().invoke(initial_state)
 
-        final_zip = artifact_path("final_zip")
-        print(f"运行成功，最终产物: {final_zip}")
+        final_video = artifact_path("final_video")
+        print(f"运行成功，最终产物: {final_video}")
         return 0
     except Exception as exc:
         logger.exception("运行失败")

@@ -14,7 +14,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from contracts import (
-    PackageManifest,
     Segment,
     TTSClip,
     TranslationBlock,
@@ -59,17 +58,12 @@ ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
     "tts_clips": ArtifactSpec(
         path="tts/clips.json", path_kind="fixed", type_=list[TTSClip]
     ),
-    "manifest": ArtifactSpec(
-        path="package/manifest.json", path_kind="fixed", type_=PackageManifest
-    ),
     # 二进制产物，路径确定
     "source_audio": ArtifactSpec(path="audio/source.wav", path_kind="fixed"),
     "dub_audio": ArtifactSpec(path="audio/dub.wav", path_kind="fixed"),
     "bilingual_srt": ArtifactSpec(path="subtitles/bilingual.srt", path_kind="fixed"),
     "burnin_subtitle": ArtifactSpec(path="subtitles/burnin.ass", path_kind="fixed"),
-    "cover_image": ArtifactSpec(path="cover/cover.jpg", path_kind="fixed"),
     "final_video": ArtifactSpec(path="video/final.mp4", path_kind="fixed"),
-    "final_zip": ArtifactSpec(path="package/final.zip", path_kind="fixed"),
     # 二进制产物，路径不确定（path="" 表示工作目录根）
     "input_video": ArtifactSpec(path="", path_kind="dir"),
     "tts_audio": ArtifactSpec(path="tts", path_kind="dir"),

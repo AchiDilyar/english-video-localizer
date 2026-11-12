@@ -54,14 +54,14 @@ def test_switch_is_per_node(monkeypatch):
         imported.append(name)
         return _fake_module(name)
 
-    _install(monkeypatch, {"probe_input": True, "package_zip": True}, importer)
+    _install(monkeypatch, {"probe_input": True, "compose_video": True}, importer)
 
     registry.resolve_nodes()
 
     mocks = [n for n in imported if n.startswith("mocks.")]
     real = [n for n in imported if n.startswith("nodes.")]
-    assert mocks == ["mocks.probe_input", "mocks.package_zip"], (
-        f"应仅 probe_input 与 package_zip 走 mocks.*，实际: {mocks}"
+    assert mocks == ["mocks.probe_input", "mocks.compose_video"], (
+        f"应仅 probe_input 与 compose_video 走 mocks.*，实际: {mocks}"
     )
     assert len(real) == len(registry.NODE_NAMES) - 2, (
         f"其余 {len(registry.NODE_NAMES) - 2} 个应走 nodes.*，实际: {real}"
