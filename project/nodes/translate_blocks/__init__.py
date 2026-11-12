@@ -9,7 +9,7 @@ TRANSLATE_PROMPT = (
     "将每个英文片段翻译成简体中文，遵循术语表，结合本块上下文理解语义。"
     "zh_subtitle 同时用于屏幕阅读和朗读。"
     "参考 duration_ms 精简译文，保留数字、单位、否定和成立条件。"
-)
+) + _text_model.SUBTITLE_PUNCTUATION_RULES
 
 
 def translate_blocks(state: GraphState) -> dict:

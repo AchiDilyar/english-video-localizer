@@ -71,6 +71,13 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
     calls = []
 
     def answer(*, instruction, payload):
+        assert "句中的顿号、逗号、句号、分号和冒号统一替换为一个半角空格" in instruction
+        assert "句末时直接省略，末尾不留空格" in instruction
+        assert "问号和感叹号按语气正常使用，句末也可以保留" in instruction
+        assert "中文双引号“…”或中文单引号‘…’" in instruction
+        assert "小数点等属于数字或专有写法的一部分，按原意保留" in instruction
+        assert "「先录音、再混音，最后做母带。」输出为「先录音 再混音 最后做母带」" in instruction
+        assert "「先录音，还是先混音？」输出为「先录音 还是先混音？」" in instruction
         assert payload["terminology"] == {"sample size": "样本量"}
         (row,) = payload["segments"]
         segment_id = row["segment_id"]

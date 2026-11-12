@@ -13,7 +13,7 @@ REVIEW_PROMPT = (
     "修正错漏译、术语不一致、数字单位、否定和条件错误。"
     "译文应自然简洁并保留原义，参考 duration_ms。"
     "未发现问题时保留该条译文。返回审校后的完整中文译文。"
-)
+) + _text_model.SUBTITLE_PUNCTUATION_RULES
 
 AUDIT_PROMPT = (
     "对照英文和术语表检查中文译文。只报告需要返工的错译、漏译、术语、"
@@ -27,7 +27,7 @@ AUDIT_FORMAT = (
 REPAIR_PROMPT = (
     "按 issues 给出的原因，仅修正对应片段的中文译文。对照原文及术语表，"
     "保留数字、单位、否定和条件。"
-)
+) + _text_model.SUBTITLE_PUNCTUATION_RULES
 
 
 class ReviewIssue(BaseModel):
