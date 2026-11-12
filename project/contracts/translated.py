@@ -23,5 +23,5 @@ class TranslatedSegment(BaseModel):
         pattern=r"^blk_\d{4,}$",
         description="所属翻译块 ID，沿用 TranslationBlock.block_id",
     )
-    zh_subtitle: str = Field(description="中文字幕文本")
-    zh_dub: str = Field(description="中文口播稿")
+    zh_subtitle: str = Field(description="中文文本")
+    zh_dub: str | None = Field(description="该字段已弃用，请勿使用", default=None)

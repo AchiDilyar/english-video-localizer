@@ -70,8 +70,8 @@
 |---|---|---|---|
 | `segment_id` | `str` | 是 | 对应分段 ID，沿用 Segment.segment_id；pattern=^seg_\d{4,}$ |
 | `block_id` | `str` | 是 | 所属翻译块 ID，沿用 TranslationBlock.block_id；pattern=^blk_\d{4,}$ |
-| `zh_subtitle` | `str` | 是 | 中文字幕文本 |
-| `zh_dub` | `str` | 是 | 中文口播稿 |
+| `zh_subtitle` | `str` | 是 | 中文文本 |
+| `zh_dub` | `UnionType[str, None]` | 否 | 该字段已弃用，请勿使用 |
 
 ## TTSClip
 
@@ -86,40 +86,6 @@
 | `text` | `str` | 是 | 合成所用中文口播稿文本 |
 | `voice_id` | `str` | 是 | 合成所用音色标识 |
 | `model` | `str` | 是 | 合成所用模型标识 |
-
-## EditAssets
-
-发布文案，由 edit_assets 生成，不落盘，仅在 GraphState 中传递。
-
-    package_zip 从 GraphState 读取，序列化为 ZIP 内 edit_assets.json，
-    并在 PackageManifest 中作为普通 ManifestEntry 列出。
-
-| 字段 | 类型 | 必填 | 约束/说明 |
-|---|---|---|---|
-| `title` | `str` | 是 | 标题 |
-| `description` | `str` | 是 | 简介 |
-| `cover_text` | `str` | 是 | 封面文案 |
-
-## ManifestEntry
-
-发布包清单条目。
-
-| 字段 | 类型 | 必填 | 约束/说明 |
-|---|---|---|---|
-| `name` | `str` | 是 | 产物名 |
-| `zip_path` | `str` | 是 | ZIP 内相对路径，如 video/final.mp4 |
-| `description` | `UnionType[str, None]` | 否 | 可选说明 |
-
-## PackageManifest
-
-发布包清单，由 collect_manifest 生成，落盘为 package/manifest.json。
-
-    entries 必须包含 manifest.json 自身，即存在一条
-    name="manifest", zip_path="manifest.json" 的条目。
-
-| 字段 | 类型 | 必填 | 约束/说明 |
-|---|---|---|---|
-| `entries` | `list[ManifestEntry]` | 是 | 发布包内文件清单；minLength=1 |
 
 ## GraphState
 
@@ -138,5 +104,3 @@ LangGraph 顶层状态。
 | `translated_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `reviewed_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `tts_clips` | `UnionType[list[TTSClip], None]` | 否 | — |
-| `edit_assets` | `UnionType[EditAssets, None]` | 否 | — |
-| `manifest` | `UnionType[PackageManifest, None]` | 否 | — |

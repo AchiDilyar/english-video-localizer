@@ -17,13 +17,10 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter
 
-from . import (
+from contracts import (
     AudioStreamInfo,
-    EditAssets,
     GraphState,
-    ManifestEntry,
     MediaInfo,
-    PackageManifest,
     Segment,
     TTSClip,
     TranslatedSegment,
@@ -39,9 +36,6 @@ BASE_MODELS: list[type[BaseModel]] = [
     TranslationBlock,
     TranslatedSegment,
     TTSClip,
-    EditAssets,
-    ManifestEntry,
-    PackageManifest,
     GraphState
 ]
 
@@ -142,7 +136,7 @@ def render_markdown() -> str:
 
 
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     output = repo_root / "docs" / "contracts" / "interfaces.md"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(render_markdown(), encoding="utf-8")
