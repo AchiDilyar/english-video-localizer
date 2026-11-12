@@ -7,11 +7,11 @@
 - [ ] 验证续跑时根据文本、模型和音色复用音频。（续跑与 SQLite 检查点按 `workflow.md` 第 5 节不在基本版范围）
 - [x] 记录目标时窗、实测时长、对齐处理和超时原因。（`tts/clips.json` 记录实测时长，目标时窗由 `segments` 回溯，裁剪片段写入日志）
 
-**交接**从 C 接收口播稿，向 E 提供对齐后的音轨，向 F 提供超时片段及缓存验证结果。
+**交接**从 C 接收最终中文字幕（`zh_subtitle`），向 E 提供对齐后的音轨，向 F 提供超时片段及缓存验证结果。
 
 ## 下一版实施计划
 
-- [ ] **音色模型使用 VoxCPM2。** 以短英文参考音频进行零样本音色克隆。按 `speaker_id` 为每位已授权说话人绑定一段干净参考音频，结合 C 的 `zh_dub` 合成逐段中文口播。参考文本可供需要时使用。模型按独立服务部署，可在组员 GPU 机器或云 GPU 上通过 vLLM-Omni 提供 API。 [VoxCPM2 部署文档](https://github.com/vllm-project/vllm-omni/blob/main/recipes/OpenBMB/VoxCPM2.md)
+- [ ] **音色模型使用 VoxCPM2。** 以短英文参考音频进行零样本音色克隆。按 `speaker_id` 为每位已授权说话人绑定一段干净参考音频，结合 C 的 `zh_subtitle` 合成逐段中文配音。参考文本可供需要时使用。模型按独立服务部署，可在组员 GPU 机器或云 GPU 上通过 vLLM-Omni 提供 API。 [VoxCPM2 部署文档](https://github.com/vllm-project/vllm-omni/blob/main/recipes/OpenBMB/VoxCPM2.md)
 - [ ] **分离与混音。** 优先用素材自带的独立背景轨。只有原混音时，先分离对白、音乐和音效，从对白轨切参考音频。把音乐和音效按原时间轴保留，与中文配音混合。试听并记录英文对白残留、背景失真和音量突变。
 - [ ] **逐段对齐。** 用 B 的起止时间分配可用时窗，合成后测实长。短句在原起点放入，余量留白。稍超时用 FFmpeg `atempo`，加速上限 1.15 倍，处理后重新测量。仍放不下就把片段 ID、目标时长和实长交 C 缩写复审，每段最多两次内容返工。未解决的片段标记人工复核。
 - [ ] **整轨交付。** 以原片时间零点放置各段，输出与原片时长一致的 PCM WAV，校验相邻片段及双人交接，向 E 交付混合了背景声的整轨。混音轨的产物名及声道约定由 D、E、F 在接入前确认。
@@ -21,4 +21,5 @@
 
 | 日期 | 完成事项 | 证据或文件 | 阻塞与下一步 |
 |---|---|---|---|
+| 2026-11-12 | 按 C 的交付变更改用 `zh_subtitle`：合成文本与 `TTSClip.text` 全部取自 `zh_subtitle`，代码中不再引用 `zh_dub`；用例默认不提供 `zh_dub`，另有一条把它填成不同内容，证明它确实未被使用；20 项测试通过，`ruff check` 通过 | `project/nodes/tts_align.py`、`tests/nodes/tts_align/` | 契约已将 `zh_dub` 改为选填并标注弃用；本模块不依赖它，后续删除该字段也无需再改 |
 | 2026-11-12 | 完成 `tts_align` 节点：音色映射配置化（音色池 + 手工覆盖）、时长检测与 1.15 倍变速对齐、按时间轴组装 `dub.wav`；18 项测试通过，`ruff check` 通过 | `project/nodes/tts_align.py`、`config/tts.toml`、`tests/nodes/tts_align/`、`docs/nodes/tts_align/README.md` | ① 待配 `DASHSCOPE_API_KEY` 做真实 TTS 双人验证；② `dub.wav` 采样率 24000Hz 单声道待与 E 的 `compose_video` 对齐；③ `spk_unknown` 是否为合法 `speaker_id` 待与 F、B 确认（本节点已按允许实现，不依赖该结论） |

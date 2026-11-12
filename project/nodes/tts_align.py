@@ -302,7 +302,8 @@ def synthesize_clip(
 def tts_align(state: GraphState) -> dict:
     """按说话人音色合成中文口播音频，对齐时间窗并组装整条中文音轨。
 
-    读 `state.reviewed_blocks`（取 `zh_dub`）与 `state.segments`（取时间窗和 `speaker_id`）；
+    读 `state.reviewed_blocks`（取 `zh_subtitle` 作为合成文本）
+    与 `state.segments`（取时间窗和 `speaker_id`）；
     写 `tts/<segment_id>.wav`、`tts/clips.json`、`audio/dub.wav`；
     返回增量 `{"tts_clips": [...]}`。
     """
@@ -338,7 +339,7 @@ def tts_align(state: GraphState) -> dict:
             voice_id = voices[segment.speaker_id]
 
             raw = Path(tmp) / f"{item.segment_id}.raw.wav"
-            synthesize_clip(item.zh_dub, voice_id, plan.model, plan.sample_rate, raw)
+            synthesize_clip(item.zh_subtitle, voice_id, plan.model, plan.sample_rate, raw)
 
             audio_path = Path(artifact_path("tts_audio", f"{item.segment_id}.wav"))
             if fit_to_window(raw, audio_path, window_ms, plan.sample_rate):
@@ -349,7 +350,7 @@ def tts_align(state: GraphState) -> dict:
                     segment_id=item.segment_id,
                     audio_path=audio_path.name,
                     duration_ms=wav_duration_ms(audio_path),
-                    text=item.zh_dub,
+                    text=item.zh_subtitle,
                     voice_id=voice_id,
                     model=plan.model,
                 )

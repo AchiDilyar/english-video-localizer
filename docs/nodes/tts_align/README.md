@@ -8,9 +8,9 @@
 
 | 方向 | 内容 |
 |---|---|
-| 读 `state.reviewed_blocks` | 取 `zh_dub` 作为口播稿 |
+| 读 `state.reviewed_blocks` | 取 `zh_subtitle` 作为合成文本，**全程不使用 `zh_dub`** |
 | 读 `state.segments` | 按 `segment_id` 取 `start_ms` / `end_ms` / `speaker_id` |
-| 写 `tts/<segment_id>.wav` | 逐段中文口播音频，文件名即 `TTSClip.audio_path` |
+| 写 `tts/<segment_id>.wav` | 逐段中文配音音频，文件名即 `TTSClip.audio_path` |
 | 写 `tts/clips.json` | 分段音频清单，`list[TTSClip]` |
 | 写 `audio/dub.wav` | 组装后的整条中文配音音轨 |
 | 返回增量 | `{"tts_clips": [...]}` |

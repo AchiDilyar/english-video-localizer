@@ -102,11 +102,11 @@ def make_segment(segment_id: str, speaker_id: str, start_ms: int, end_ms: int) -
 
 
 def make_reviewed(segment_id: str, text: str) -> TranslatedSegment:
+    """zh_dub 已弃用且为选填，这里完全不提供，证明节点只依赖 zh_subtitle。"""
     return TranslatedSegment(
         segment_id=segment_id,
         block_id="blk_0001",
         zh_subtitle=text,
-        zh_dub=text,
     )
 
 
@@ -246,7 +246,7 @@ def test_node_writes_clips_and_dub(work_dir, plan, monkeypatch):
     assert [clip.segment_id for clip in clips] == ["seg_0001", "seg_0002"]
     assert [clip.voice_id for clip in clips] == ["v1", "v2"]
     assert all(clip.duration_ms == 2000 for clip in clips)
-    assert all(clip.text == "第一句" or clip.text == "第二句" for clip in clips)
+    assert [clip.text for clip in clips] == ["第一句", "第二句"]
 
     for clip in clips:
         assert (work_dir / "tts" / clip.audio_path).is_file()
@@ -258,6 +258,27 @@ def test_node_writes_clips_and_dub(work_dir, plan, monkeypatch):
     dub = work_dir / "audio" / "dub.wav"
     assert dub.is_file()
     assert tts_align.wav_duration_ms(dub) == pytest.approx(5000, abs=2)
+
+
+@requires_ffmpeg
+def test_node_uses_zh_subtitle_not_zh_dub(work_dir, plan, monkeypatch):
+    """zh_dub 仍是契约必填字段，但配音只允许用 zh_subtitle。"""
+    monkeypatch.setattr(tts_align, "load_voice_plan", lambda: plan)
+    monkeypatch.setattr(tts_align, "synthesize_clip", fake_synthesize)
+    item = TranslatedSegment(
+        segment_id="seg_0001",
+        block_id="blk_0001",
+        zh_subtitle="字幕正文",
+        zh_dub="口播稿不应出现",
+    )
+    state = GraphState(
+        segments=[make_segment("seg_0001", "spk_1", 0, 2000)],
+        reviewed_blocks=[item],
+    )
+
+    clips = tts_align.tts_align(state)["tts_clips"]
+
+    assert clips[0].text == "字幕正文"
 
 
 @requires_ffmpeg
