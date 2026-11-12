@@ -23,7 +23,8 @@ uv run pytest tests/smoke
 +   **LLM 边界替身**：`conftest.llm_stub` patch `nodes.translate_blocks._text_model.request_json`。阶段 3 已证该模块对象同时被 `translate_blocks` 与 `review_blocks` 使用。若 C 改为直接 `from ... import request_json`，替身会失效；`test_c_chain_produces_readable_artifacts` 中 `calls["review"] >= 1` 会暴露。
     
 +   **不验收**：C 的真实 DeepSeek 调用、B 真实节点、D/E 产物、最终成片 `final_video`。这些留到 D/E 真实接入后的端到端验收。
-    
+
++   zh_dub 已弃用，仅为兼容性保留（str | None，默认 None）。smoke 的 LLM 替身只返回 segment_id 与 zh_subtitle，不对 zh_dub 做任何断言。
 
 ## 输入
 

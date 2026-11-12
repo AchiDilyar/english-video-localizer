@@ -4,6 +4,7 @@ Smoke scope (per integration decision D2-A / D4-A):
 - C sub-chain only: build_blocks -> translate_blocks -> review_blocks
 - No build_graph(), no real B nodes, no FFmpeg / ASR / Community-1 / API key
 - LLM boundary replaced via monkeypatch (D1-B)
+- zh_dub is deprecated (str | None, default None); stub does not return it
 """
 
 import shutil
@@ -26,7 +27,7 @@ def work_dir(tmp_path):
     w = tmp_path / "work"
     w.mkdir()
     for d in ("audio", "segments", "translated", "tts", "subtitles",
-              "video", "logs"):
+              "cover", "video", "package", "logs"):
         (w / d).mkdir()
     set_work_dir(str(w))
     return w
@@ -56,7 +57,6 @@ def llm_stub(monkeypatch):
             {
                 "segment_id": s["segment_id"],
                 "zh_subtitle": s.get("zh_subtitle") or f"字幕-{s['segment_id']}",
-                "zh_dub": s.get("zh_dub") or f"口播-{s['segment_id']}",
             }
             for s in segs
         ]
