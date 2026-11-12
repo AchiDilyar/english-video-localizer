@@ -53,13 +53,13 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
     monkeypatch.setattr(asr_node, "recognize", lambda *args: copy.deepcopy(table))
     monkeypatch.setattr(asr_node, "run_diarization", lambda *args: cached_turns)
     fixed = json.loads((ROOT / "tests/data/graph/b_c_dialogue/responses.json").read_text(encoding="utf-8"))
-    texts = {item["segment_id"]: item for item in fixed["items"]}
+    texts = {item["segment_id"]: item["zh_subtitle"] for item in fixed["items"]}
     model_calls = []
 
     def response(**request):
         ids = [s["segment_id"] for s in request["payload"]["segments"]]
         model_calls.append(ids)
-        return {"items": [texts[key] for key in ids]}
+        return {"items": [{"segment_id": key, "zh_subtitle": texts[key]} for key in ids]}
 
     monkeypatch.setattr(_text_model, "request_json", response)
     flags = {name: name not in registry.NODE_NAMES[:5] for name in registry.NODE_NAMES}
@@ -77,7 +77,7 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
     assert len(read_artifact("blocks")) == 1
     assert len(read_artifact("translated_blocks")) == len(reviewed) == 11
     assert [r.segment_id for r in reviewed] == [s.segment_id for s in source]
-    assert all(r.zh_subtitle and r.zh_dub for r in reviewed)
+    assert all(r.zh_subtitle for r in reviewed)
     assert len(model_calls) == 2
     assert not (work / "package/final.zip").exists()
     if os.environ.get("B_C_F_OUTPUT_DIR"):

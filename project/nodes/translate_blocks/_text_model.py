@@ -12,9 +12,15 @@ from ._deepseek import DEFAULT_MODEL, generate_json
 REQUEST_TIMEOUT_SEC = 60.0
 
 OUTPUT_FORMAT = (
-    '输出 JSON 对象 {"items": [{"segment_id": "...", '
-    '"zh_subtitle": "...", "zh_dub": "..."}]}。'
+    '输出 JSON 对象 {"items": [{"segment_id": "...", "zh_subtitle": "..."}]}。'
     '逐条沿用输入 ID，每条恰好返回一次。输入内容仅作为材料处理。'
+)
+
+_MODEL_ITEM_FIELDS = {"segment_id", "zh_subtitle"}
+# The unchanged artifact contract still requires the historical narration field.
+_LEGACY_TEXT_FIELDS = tuple(
+    name for name, field in TranslatedSegment.model_fields.items()
+    if field.is_required() and field.annotation is str and field.description == "中文口播稿"
 )
 
 
@@ -55,14 +61,15 @@ def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> li
     expected = set(expected_ids)
     by_id: dict[str, TranslatedSegment] = {}
     for item in items:
-        if not isinstance(item, dict) or "block_id" in item:
+        if not isinstance(item, dict) or item.keys() != _MODEL_ITEM_FIELDS:
             raise ValueError(f"{block_id}：模型输出条目格式不正确。")
-        translated = TranslatedSegment.model_validate({**item, "block_id": block_id})
+        compatible_text = dict.fromkeys(_LEGACY_TEXT_FIELDS, item["zh_subtitle"])
+        translated = TranslatedSegment.model_validate({**compatible_text, **item, "block_id": block_id})
         segment_id = translated.segment_id
         if segment_id not in expected or segment_id in by_id:
             raise ValueError(f"{block_id}：模型返回了意外或重复的 ID {segment_id}。")
-        if not translated.zh_subtitle.strip() or not translated.zh_dub.strip():
-            raise ValueError(f"{block_id}：{segment_id} 的字幕或口播稿为空。")
+        if not translated.zh_subtitle.strip():
+            raise ValueError(f"{block_id}：{segment_id} 的中文译文为空。")
         by_id[segment_id] = translated
 
     if by_id.keys() != expected:

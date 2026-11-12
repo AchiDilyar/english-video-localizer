@@ -1,7 +1,12 @@
 import pytest
-from contracts import GraphState, Segment, TranslatedSegment
+from contracts import GraphState, Segment
 from nodes.review_blocks import ReviewIssue, find_review_issues, repair_segments, should_repair
 from nodes.translate_blocks import _text_model
+
+
+def make_draft(segment_id, block_id, text):
+    response = {"items": [{"segment_id": segment_id, "zh_subtitle": text}]}
+    return _text_model.validate_items(response, block_id, [segment_id])[0]
 
 
 @pytest.fixture
@@ -18,22 +23,14 @@ def state():
         segments=[first, second],
         terminology={"sample size": "样本量"},
         translated_blocks=[
-            TranslatedSegment(
-                segment_id=first.segment_id, block_id="blk_0001",
-                zh_subtitle="只有样本量至少为 12 时才能继续。", zh_dub="可以继续。",
-            ),
-            TranslatedSegment(
-                segment_id=second.segment_id, block_id="blk_0002",
-                zh_subtitle="记录样本量。", zh_dub="记下样本量。",
-            ),
+            make_draft(first.segment_id, "blk_0001", "可以继续。"),
+            make_draft(second.segment_id, "blk_0002", "记录样本量。"),
         ],
     )
 
 
 def test_clean_audit_does_not_request_a_repair(state, monkeypatch):
-    state.translated_blocks[0] = state.translated_blocks[0].model_copy(
-        update={"zh_dub": "样本量至少为十二才能继续。"}
-    )
+    state.translated_blocks[0] = make_draft("seg_0001", "blk_0001", "样本量至少为十二才能继续。")
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"issues": []})
     issues = find_review_issues(state)
     assert issues == []
@@ -47,14 +44,14 @@ def test_clean_audit_does_not_request_a_repair(state, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("draft_dub", "reason"),
+    ("draft_text", "reason"),
     [
         pytest.param("可以继续。", "口播漏掉样本量限制", id="omission"),
         pytest.param("样本大小至少为十二才能继续。", "口播未使用术语表中的样本量", id="terminology"),
     ],
 )
-def test_audit_and_repair_only_change_the_flagged_field(state, monkeypatch, draft_dub, reason):
-    state.translated_blocks[0] = state.translated_blocks[0].model_copy(update={"zh_dub": draft_dub})
+def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, draft_text, reason):
+    state.translated_blocks[0] = make_draft("seg_0001", "blk_0001", draft_text)
     audited_ids = []
 
     def audit(**request):
@@ -62,16 +59,17 @@ def test_audit_and_repair_only_change_the_flagged_field(state, monkeypatch, draf
         (row,) = request["payload"]["segments"]
         audited_ids.append(row["segment_id"])
         if row["segment_id"] == "seg_0001":
-            assert row["zh_dub"] == draft_dub
-            return {"issues": [{"segment_id": "seg_0001", "reason": reason, "target": "dub"}]}
-        assert "样本量" in row["zh_dub"]
+            assert row["zh_subtitle"] == draft_text
+            assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle"}
+            return {"issues": [{"segment_id": "seg_0001", "reason": reason, "target": "subtitle"}]}
+        assert "样本量" in row["zh_subtitle"]
         return {"issues": []}
 
     monkeypatch.setattr(_text_model, "request_json", audit)
     issues = find_review_issues(state)
     assert audited_ids == ["seg_0001", "seg_0002"]
     assert [issue.model_dump() for issue in issues] == [
-        {"segment_id": "seg_0001", "reason": reason, "target": "dub"}
+        {"segment_id": "seg_0001", "reason": reason, "target": "subtitle"}
     ]
     assert should_repair(issues) is True
 
@@ -82,17 +80,15 @@ def test_audit_and_repair_only_change_the_flagged_field(state, monkeypatch, draf
         assert row["issues"][0]["reason"] == reason
         return {"items": [{
             "segment_id": "seg_0001",
-            "zh_subtitle": "模型提出了未经要求的字幕修改。",
-            "zh_dub": "样本量至少为十二才能继续。",
+            "zh_subtitle": "样本量至少为十二才能继续。",
         }]}
 
     monkeypatch.setattr(_text_model, "request_json", rewrite)
     repaired = repair_segments(state, issues)
-    assert repaired[0].zh_dub == "样本量至少为十二才能继续。"
-    assert repaired[0].zh_subtitle == state.translated_blocks[0].zh_subtitle
+    assert repaired[0].zh_subtitle == "样本量至少为十二才能继续。"
     assert repaired[0].block_id == "blk_0001"
     assert repaired[1] is state.translated_blocks[1]
-    assert state.translated_blocks[0].zh_dub == draft_dub
+    assert state.translated_blocks[0].zh_subtitle == draft_text
 
 
 def test_audit_rejects_an_id_outside_its_block(state, monkeypatch):
@@ -105,7 +101,7 @@ def test_audit_rejects_an_id_outside_its_block(state, monkeypatch):
 
 def test_repair_rejects_an_unrequested_segment_in_model_output(state, monkeypatch):
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {
-        "items": [{"segment_id": "seg_0002", "zh_subtitle": "不该更新", "zh_dub": "不该更新"}]
+        "items": [{"segment_id": "seg_0002", "zh_subtitle": "不该更新"}]
     })
     with pytest.raises(ValueError, match="seg_0002"):
         repair_segments(state, [ReviewIssue(segment_id="seg_0001", reason="漏译", target="dub")])

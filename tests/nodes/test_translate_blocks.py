@@ -63,8 +63,8 @@ def source_state():
     )
 
 
-def item(segment_id, subtitle, dub):
-    return {"segment_id": segment_id, "zh_subtitle": subtitle, "zh_dub": dub}
+def item(segment_id, subtitle):
+    return {"segment_id": segment_id, "zh_subtitle": subtitle}
 
 
 def test_build_translate_review_handoff_preserves_both_blocks(source_state, monkeypatch):
@@ -74,16 +74,17 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
         assert payload["terminology"] == {"sample size": "样本量"}
         (row,) = payload["segments"]
         segment_id = row["segment_id"]
-        is_review = "zh_dub" in row
+        is_review = "zh_subtitle" in row
         calls.append((is_review, segment_id))
         if segment_id == "seg_0002":
             assert row["text_en"] == "Do not reduce the sample size."
-            return {"items": [item(segment_id, "不要减少样本量。", "别减少样本量。")]}
+            return {"items": [item(segment_id, "不要减少样本量。")]}
         if not is_review:
             assert row["duration_ms"] == 5_000
-            return {"items": [item(segment_id, "这种方法有效。", "这种方法有效。")]}
-        assert row["zh_dub"] == "这种方法有效。"
-        return {"items": [item(segment_id, "只有样本量至少为 12 时才有效。", "样本量至少为十二才有效。")]}
+            return {"items": [item(segment_id, "这种方法有效。")]}
+        assert row["zh_subtitle"] == "这种方法有效。"
+        assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle"}
+        return {"items": [item(segment_id, "只有样本量至少为 12 时才有效。")]}
 
     monkeypatch.setattr(_text_model, "request_json", answer)
     state = source_state.model_copy(update=build_blocks(source_state))
@@ -105,17 +106,21 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
         ("seg_0001", "blk_0001"), ("seg_0002", "blk_0002")
     ]
     assert reviewed[0].zh_subtitle == "只有样本量至少为 12 时才有效。"
-    assert reviewed[0].zh_dub == "样本量至少为十二才有效。"
     assert reviewed[1].zh_subtitle == "不要减少样本量。"
-    assert reviewed[1].zh_dub == "别减少样本量。"
-    assert state.translated_blocks[0].zh_dub == "这种方法有效。"
+    assert state.translated_blocks[0].zh_subtitle == "这种方法有效。"
+    for row in [*state.translated_blocks, *reviewed]:
+        fields = row.model_dump()
+        assert fields.keys() == TranslatedSegment.model_fields.keys()
+        assert set(fields[name] for name in fields.keys() - {"block_id", "segment_id"}) == {
+            row.zh_subtitle
+        }
 
 
 @pytest.mark.parametrize("items", [
     [],
-    [item("seg_0002", "错误片段", "错误片段")],
-    [item("seg_0001", "字幕", "口播"), item("seg_0001", "重复字幕", "重复口播")],
-    [item("seg_0001", "字幕", "  ")],
+    [item("seg_0002", "错误片段")],
+    [item("seg_0001", "字幕"), item("seg_0001", "重复字幕")],
+    [item("seg_0001", "  ")],
 ])
 def test_translate_rejects_bad_model_output(source_state, monkeypatch, items):
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"items": items})
@@ -126,8 +131,8 @@ def test_translate_rejects_bad_model_output(source_state, monkeypatch, items):
 def test_review_rejects_an_incomplete_response(source_state, monkeypatch):
     state = source_state.model_copy(update=build_blocks(source_state))
     state.translated_blocks = [
-        TranslatedSegment(block_id="blk_0001", **item("seg_0001", "字幕一", "口播一")),
-        TranslatedSegment(block_id="blk_0002", **item("seg_0002", "字幕二", "口播二")),
+        *_text_model.validate_items({"items": [item("seg_0001", "字幕一")]}, "blk_0001", ["seg_0001"]),
+        *_text_model.validate_items({"items": [item("seg_0002", "字幕二")]}, "blk_0002", ["seg_0002"]),
     ]
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"items": []})
     with pytest.raises(ValueError, match="seg_0001"):
