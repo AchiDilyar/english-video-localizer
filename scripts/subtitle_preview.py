@@ -1,19 +1,20 @@
 """Read-only subtitle data for the workflow's review panel."""
 
-import json
 import re
-import sys
 from pathlib import Path
+
+from pydantic import TypeAdapter
+from utils.artifacts import ARTIFACT_SPECS
 
 STAGES = {
     "initial": ("b/initial.srt",),
     "segmented": ("subtitles/english_segmented.srt", "b/english.srt"),
     "draft": ("subtitles/translated.srt",),
-    "final": ("subtitles/bilingual.srt",),
+    "final": (ARTIFACT_SPECS["bilingual_srt"].path,),
 }
 TRANSLATIONS = {
-    "draft": "translated/translated_blocks.json",
-    "final": "translated/reviewed_blocks.json",
+    "draft": "translated_blocks",
+    "final": "reviewed_blocks",
 }
 TIME = r"(\d{2,}:\d{2}:\d{2}[,.]\d{3})"
 TIMING = re.compile(rf"^\s*{TIME}\s*-->\s*{TIME}(?:\s+.*)?$")
@@ -55,27 +56,40 @@ def parse_srt(text: str, *, bilingual: bool) -> list[dict]:
     return sorted(cues, key=lambda cue: cue["start_ms"])
 
 
-def structured_translation(job: Path, stage: str) -> list[dict] | None:
-    translation_file = job / TRANSLATIONS[stage]
-    segments_file = job / "segments/segments.json"
-    if not translation_file.is_file() or not segments_file.is_file():
+def read_rows(job: Path, name: str):
+    # HTTP handlers can read multiple jobs concurrently. Use the shared path and
+    # validation type without setting the CLI's process-global work directory.
+    spec = ARTIFACT_SPECS[name]
+    path = job / spec.path
+    if path.is_file():
+        return TypeAdapter(spec.type_).validate_json(read_text(path))
+    return None
+
+
+def structured_cues(job: Path, stage: str) -> list[dict] | None:
+    segments = read_rows(job, "segments")
+    if segments is None:
         return None
-    segments = json.loads(read_text(segments_file))
-    translations = json.loads(read_text(translation_file))
-    by_id = {row["segment_id"]: row["zh_subtitle"] for row in translations}
-    if len(by_id) != len(translations) or len(by_id) != len(segments):
-        raise ValueError("译文和原文分段数量不匹配。")
+    ids = {row.segment_id for row in segments}
+    if len(ids) != len(segments):
+        raise ValueError("原文分段 ID 重复。")
+
+    by_id = {}
+    if stage in TRANSLATIONS:
+        translations = read_rows(job, TRANSLATIONS[stage])
+        if translations is None:
+            return None
+        by_id = {row.segment_id: row.zh_subtitle for row in translations}
+        if len(by_id) != len(translations) or by_id.keys() != ids:
+            raise ValueError("译文和原文分段不匹配。")
+
     cues = []
-    seen = set()
     for row in segments:
-        key = row["segment_id"]
-        start, end = row["start_ms"], row["end_ms"]
-        original, translation = row["text_en"], by_id[key]
-        if (key in seen or type(start) is not int or type(end) is not int or not 0 <= start < end
-                or not original.strip() or not translation.strip()):
-            raise ValueError("翻译阶段的分段或时间轴无效。")
-        seen.add(key)
-        cues.append(dict(start_ms=start, end_ms=end, original=original, translation=translation))
+        translation = by_id.get(row.segment_id)
+        if not row.text_en.strip() or (translation is not None and not translation.strip()):
+            raise ValueError("字幕缺少原文或译文。")
+        cues.append(dict(start_ms=row.start_ms, end_ms=row.end_ms,
+                         original=row.text_en, translation=translation))
     return sorted(cues, key=lambda cue: cue["start_ms"])
 
 
@@ -85,44 +99,8 @@ def subtitle_stage(job: Path, stage: str) -> dict:
         if candidate.is_file():
             cues = parse_srt(read_text(candidate), bilingual=stage in TRANSLATIONS)
             return {"stage": stage, "ready": True, "cues": cues}
-    if stage in TRANSLATIONS:
-        cues = structured_translation(job, stage)
+    if stage != "initial":
+        cues = structured_cues(job, stage)
         if cues is not None:
             return {"stage": stage, "ready": True, "cues": cues}
     return {"stage": stage, "ready": False, "cues": []}
-
-
-def srt_time(value: int) -> str:
-    seconds, ms = divmod(value, 1000)
-    minutes, second = divmod(seconds, 60)
-    hour, minute = divmod(minutes, 60)
-    return f"{hour:02d}:{minute:02d}:{second:02d},{ms:03d}"
-
-
-def save_initial_preview(b_job: Path) -> None:
-    """Save B's first sentence snapshot without retaining native word alignments."""
-    from langgraph.checkpoint.sqlite import SqliteSaver
-    from nodes.asr_diarize.pipeline.sentence_mode import build_sentence_graph
-
-    config = {"configurable": {"thread_id": b_job.name}}
-    with SqliteSaver.from_conn_string(str(b_job / "checkpoints.sqlite")) as saver:
-        graph = build_sentence_graph(saver)
-        for state in graph.get_state_history(config):
-            if state.next == ("recheck_incomplete_audio",):
-                rows = state.values["table"]["sentences"]
-                break
-        else:
-            return
-    blocks = [
-        f'{index}\n{srt_time(row["start_ms"])} --> {srt_time(row["end_ms"])}\n{row["en"]}'
-        for index, row in enumerate(rows, 1)
-        if 0 <= row["start_ms"] < row["end_ms"] and row["en"].strip()
-    ]
-    if blocks:
-        pending = b_job / "initial.srt.tmp"
-        pending.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
-        pending.replace(b_job / "initial.srt")
-
-
-if __name__ == "__main__":
-    save_initial_preview(Path(sys.argv[1]))

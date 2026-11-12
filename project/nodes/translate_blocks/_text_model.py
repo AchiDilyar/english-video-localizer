@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 from ._deepseek import DEFAULT_MODEL, generate_json
 
+REQUEST_TIMEOUT_SEC = 60.0
+
 OUTPUT_FORMAT = (
     '输出 JSON 对象 {"items": [{"segment_id": "...", '
     '"zh_subtitle": "...", "zh_dub": "..."}]}。'
@@ -16,16 +18,24 @@ OUTPUT_FORMAT = (
 )
 
 
-def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT_FORMAT) -> dict:
+def text_model_env() -> Path:
     checkout_env = Path(__file__).resolve().parents[3] / ".env"
-    load_dotenv(checkout_env if checkout_env.is_file() else Path.cwd() / ".env")
-    with httpx.Client(timeout=60.0) as client:
+    return checkout_env if checkout_env.is_file() else Path.cwd() / ".env"
+
+
+def text_model_name(env_file_value: str | None = None) -> str:
+    return os.getenv("DEEPSEEK_MODEL", env_file_value or "").strip() or DEFAULT_MODEL
+
+
+def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT_FORMAT) -> dict:
+    load_dotenv(text_model_env())
+    with httpx.Client(timeout=REQUEST_TIMEOUT_SEC) as client:
         return generate_json(
             client,
             instruction + "\n" + output_format,
             payload,
             api_key=os.getenv("DEEPSEEK_API_KEY", ""),
-            model=os.getenv("DEEPSEEK_MODEL", "").strip() or DEFAULT_MODEL,
+            model=text_model_name(),
         )
 
 

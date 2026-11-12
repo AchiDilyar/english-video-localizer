@@ -3,12 +3,14 @@ const video = $('review-video');
 const list = $('review-cue-list');
 const scroll = $('review-cue-scroll');
 const status = $('review-stage-status');
+const initialTab = $('review-stage-initial');
 const stageTabs = [...document.querySelectorAll('[data-stage]')];
 const jobKey = 'video-localizer.preview-job';
 const validId = /^[0-9a-f]{32}$/;
 
-let stage = 'initial';
+let stage = 'segmented';
 let jobId = null;
+let initialCheckJob = null;
 let objectUrl = null;
 let request = null;
 let retryTimer = null;
@@ -27,8 +29,30 @@ function saveJob(id) {
   }
 }
 
+function changeJob(id) {
+  if (id === jobId) return;
+  jobId = id;
+  initialCheckJob = null;
+  initialTab.hidden = true;
+  saveJob(id);
+}
+
+async function checkInitialTab() {
+  if (!jobId || jobId === initialCheckJob) return;
+  const id = jobId;
+  initialCheckJob = id;
+  try {
+    const response = await fetch(`/api/workflow-runs/${id}/subtitles/initial`);
+    if (!response.ok) throw new Error();
+    const result = await response.json();
+    if (jobId === id) initialTab.hidden = !(result.ready && result.cues.length);
+  } catch {
+    if (jobId === id) initialCheckJob = null;
+  }
+}
+
 function reviewChanged() {
-  document.dispatchEvent(new Event('project-view-change'));
+  document.dispatchEvent(new Event('canvas-view-change'));
 }
 
 export function getReviewView() {
@@ -44,8 +68,7 @@ export function restoreReviewView(view, file) {
   if (file !== undefined || view.jobId !== jobId) {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = file ? URL.createObjectURL(file) : null;
-    jobId = view.jobId;
-    saveJob(jobId);
+    changeJob(view.jobId);
     setVideo(objectUrl ?? (jobId ? `/api/workflow-runs/${jobId}/preview-video` : null),
       file?.name ?? (jobId ? '当前任务的原视频' : ''));
   }
@@ -95,25 +118,24 @@ function setVideo(url, label) {
 }
 
 export function setPreviewInput(file) {
-  jobId = null;
-  saveJob(null);
+  changeJob(null);
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(file);
   setVideo(objectUrl, file.name);
-  setStage('initial');
+  setStage('segmented');
 }
 
 export function setPreviewJob(id) {
   if (!validId.test(id)) return;
-  jobId = id;
-  saveJob(id);
+  const isNewJob = id !== jobId;
+  changeJob(id);
   if (!objectUrl) setVideo(`/api/workflow-runs/${id}/preview-video`, '当前任务的原视频');
-  refreshSubtitleReview();
-  reviewChanged();
+  if (isNewJob) setStage('segmented');
+  else refreshSubtitleReview();
 }
 
 function setStage(next) {
-  stage = next;
+  stage = next === 'initial' && initialTab.hidden ? 'segmented' : next;
   for (const tab of stageTabs) {
     const selected = tab.dataset.stage === stage;
     tab.setAttribute('aria-selected', String(selected));
@@ -207,6 +229,7 @@ export async function refreshSubtitleReview() {
     status.textContent = '运行工作流后，这里会显示已生成的阶段字幕。';
     return;
   }
+  void checkInitialTab();
   const controller = new AbortController();
   request = controller;
   try {

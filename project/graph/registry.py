@@ -1,8 +1,11 @@
 """Resolve real/mock nodes exclusively through F's mock.toml."""
+import logging
 from collections.abc import Callable
 from importlib import import_module
 
 from utils.config import load_config
+
+logger = logging.getLogger(__name__)
 
 NODE_NAMES = (
     "probe_input", "asr_diarize", "build_blocks", "translate_blocks", "review_blocks",
@@ -11,8 +14,7 @@ NODE_NAMES = (
 )
 
 
-def resolve_nodes() -> dict[str, Callable[..., dict]]:
-    flags = load_config("mock.toml")
+def node_modes_from_flags(flags) -> dict[str, str]:
     if not isinstance(flags, dict):
         raise TypeError(f"mock.toml must parse into a dict, got {type(flags).__name__}")
     unknown = flags.keys() - set(NODE_NAMES)
@@ -20,9 +22,22 @@ def resolve_nodes() -> dict[str, Callable[..., dict]]:
         raise ValueError(f"Unknown nodes in mock.toml: {sorted(unknown)}")
     if any(type(value) is not bool for value in flags.values()):
         raise TypeError("mock.toml node switches must be booleans")
+    return {name: "mock" if flags.get(name, False) else "real" for name in NODE_NAMES}
+
+
+def load_node_modes() -> dict[str, str]:
+    return node_modes_from_flags(load_config("mock.toml"))
+
+
+def resolve_nodes() -> dict[str, Callable[..., dict]]:
+    modes = load_node_modes()
+    logger.info(
+        "节点运行模式：%s",
+        ", ".join(f"{name}={'模拟' if mode == 'mock' else '真实'}" for name, mode in modes.items()),
+    )
     nodes: dict[str, Callable[..., dict]] = {}
-    for name in NODE_NAMES:
-        package = "mocks" if flags.get(name, False) else "nodes"
+    for name, mode in modes.items():
+        package = "mocks" if mode == "mock" else "nodes"
         function = getattr(import_module(f"{package}.{name}"), name)
         if not callable(function):
             raise TypeError(f"{package}.{name}.{name} must be callable")

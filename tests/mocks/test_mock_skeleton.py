@@ -14,9 +14,8 @@ import importlib
 import inspect
 from pathlib import Path
 
-import pytest
-
 import mocks as mocks_pkg
+import pytest
 
 EXPECTED_NODES = (
     "probe_input",
@@ -93,7 +92,7 @@ def test_mock_functions_return_dict() -> None:
 
 
 def test_mock_toml_lists_all_nodes() -> None:
-    """config/mock.toml 键集合应覆盖全部节点；骨架阶段全为 true。"""
+    """config/mock.toml 必须覆盖全部节点，每个开关均为布尔值。"""
     from utils.config import load_config
 
     cfg = load_config("mock.toml")
@@ -103,15 +102,4 @@ def test_mock_toml_lists_all_nodes() -> None:
         f"mock.toml 键与节点清单不一致："
         f"缺少 {sorted(expected - set(cfg))}，多余 {sorted(set(cfg) - expected)}"
     )
-
-def test_mock_toml_all_true_skeleton_phase() -> None:
-    """骨架阶段专用断言：mock.toml 全部为 true。
-
-    预期寿命：B/C/D/E 节点交付并逐个切真实后，本断言应当失败，
-    届时删除本函数，不要注释掉。test_mock_toml_keys_cover_all_nodes 继续保留。
-    """
-    from utils.config import load_config
-
-    cfg = load_config("mock.toml")
-    for name in EXPECTED_NODES:
-        assert cfg[name] is True, f"mock.toml 中 {name} 应为 true（骨架阶段）"
+    assert all(isinstance(flag, bool) for flag in cfg.values())

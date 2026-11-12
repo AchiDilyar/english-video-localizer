@@ -19,11 +19,11 @@
 | 14 秒双人短片 + `segments.json` | B | 已接入 | `tests/data/asr_diarize/real_dialogue/` | 是 | 作为主图联调数据 | — |
 | 残句复识别 | B | 已接入节点内部 | `nodes/asr_diarize/` | 是（节点内部） | 不改变 `segments.json` 契约 | `increments/audio-recheck.md` |
 | 高级说话人（Community-1 / sherpa） | B | 待接入 | `nodes/asr_diarize/` | 待定 | F还需确认默认行为、未知说话人策略 | `increments/speaker-diarization.md` |
-| WebUI 2.0 | E | 独立增量 | `web/`、`scripts/`、`docs/webui.md` | 不涉及| 可用于演示，与CLI独立 | `increments/webui.md` |
+| WebUI 2.0 | E | 独立增量 | `web/`、`scripts/`、`docs/webui.md` | 不涉及| 通过 `run-input` 执行主图，展示后端终端日志和正式产物，编辑同一份 `config/mock.toml` | [WebUI](../../webui.md) |
 | 字幕压制工具 + ASS 模板 | E | 待接入 | 工具文件 | 待定 | 可作为 `subtitle_cover` / `compose_video` 参考 | `increments/subtitle-tools.md` |
 | `development.md` | E | 待确认 | `docs/development.md` | 待定 | F不理解该文档的作用，等待进一步说明 | `increments/development-doc.md` |
 | 拆字幕样式 / 封面为独立节点 | E | 待确认 | `workflow.md` / WebUI | 待定 | 需 E 澄清是 UI 分组还是节点变更 | — |
-| `e_handoff.py` | E | 待确认 | `project/e_handoff.py` | 待定 | 需改为消费 `segments/segments.json` | `increments/e-handoff.md` |
+| 旧版 B → E 文件交接原型 | E | 已移除 | 旧工具和专用联调测试 | 否 | E 的联调采用 CLI 和 WebUI 共用的正式主图 | — |
 | 审校问题清单与按片段定向返工 | C | 待接入 | `project/nodes/review_blocks.py`、`tests/nodes/test_review_blocks.py` | 待定 | 已提供问题清单、退回判断和局部修复函数；当前主图未调用，提请 F 评估保留为独立增量 | [c-targeted-repair.md](c-targeted-repair.md) |
 
 **“进主图”取值：**
@@ -43,7 +43,7 @@
 
 ## 详细说明文档规则
 
-1. **需要详细说明时，在 `docs/design/increments/` 下新建一个 markdown 文件**，文件名使用增量的英文标识符（如 `webui.md`、`e-handoff.md`），并在登记表“详细文档”栏填相对路径。不需要详细说明的，此栏填“—”。
+1. **需要详细说明时，在 `docs/design/increments/` 下新建一个 markdown 文件**，文件名使用增量的英文标识符（如 `webui.md`），并在登记表“详细文档”栏填相对路径。不需要详细说明的，此栏填“—”。
 2. **每个增量最多一个详细说明文档。** 不要为同一个增量拆分成多个文件；如果内容过多，优先精简。
 3. **详细文档只放必要信息**：增量是什么、影响哪些节点/产物、是否进主图、接入需要改什么。不要求写完整设计、不要逐行说明代码。
 4. **历史文档可作为参考链接**，不需要迁移到 `increments/`。例如 B 的 `B-real-diarization.md` 可以继续放在 `docs/nodes/asr_diarize/`，登记表的“详细文档”栏指向它。
@@ -61,7 +61,7 @@
 
 | 问题 | 提出者 | 状态 | 影响 | 处理建议 |
 |---|---|---|---|---|
-| 未知说话人 `speaker_id` 语义 | B / E | 待决策 | B 节点抛 `UNRESOLVED_SPEAKER`；E 的 `e_handoff.py` 用 `spk_unknown`；`contracts.Segment.speaker_id` 必填且 `spk_...` 正则 | 建议允许 `spk_unknown` 作为合法值，走 `CHANGELOG.md` 流程；CLI 完成后、真实 B/C 联调前决策 |
+| 未知说话人 `speaker_id` 语义 | B / E | 待决策 | B 节点抛 `UNRESOLVED_SPEAKER`；`contracts.Segment.speaker_id` 必填且 `spk_...` 正则 | 建议允许 `spk_unknown` 作为合法值，走 `CHANGELOG.md` 流程；CLI 完成后、真实 B/C 联调前决策 |
 
 ## 未登记或不回复的处理方案
 

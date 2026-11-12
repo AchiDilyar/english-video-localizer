@@ -1,44 +1,23 @@
 import { getReviewView, openSubtitleReview, refreshSubtitleReview, restoreReviewView, setPreviewInput, setPreviewJob } from './subtitle-review.js';
-import { refreshTasks, setTaskProject } from './task-queue.js';
-import { schema, categories, edges, fieldsOf, defaults, arrangeLegacyNodes, subtitleCatalog } from './node-schema.js';
+import { refreshTasks } from './task-queue.js';
+import { schema, categories, edges, defaults } from './node-schema.js';
 
 const $ = id => document.getElementById(id);
-const themeChoices = [...document.querySelectorAll('[data-theme-choice]')];
-function syncThemeChoices() {
-  const theme = document.documentElement.dataset.theme ?? 'dark';
-  for (const button of themeChoices) {
-    button.setAttribute('aria-pressed', String(button.dataset.themeChoice === theme));
-  }
-}
-for (const button of themeChoices) {
-  button.onclick = () => {
-    const theme = button.dataset.themeChoice;
-    document.documentElement.dataset.theme = theme;
-    syncThemeChoices();
-    try { localStorage.setItem('video-localizer.theme', theme); }
-    catch { /* The palette still changes for this page. */ }
-  };
-}
-syncThemeChoices();
 
 const NS = 'http://www.w3.org/2000/svg';
-const STORAGE = 'video-localizer.project.v4';
-const SESSION = 'video-localizer.open-projects.v1';
-const PROJECT_FILE_LIMIT = 1024 * 1024;
-const projectFileTypes = [{ description: '工程文件', accept: { 'application/json': ['.json'] } }];
-const LEGACY_STORAGE = ['video-localizer.project.v3', 'video-localizer.workflow.v2'];
+const STORAGE = 'video-localizer.canvas.v1';
+const LEGACY_LAYOUT_KEYS = ['video-localizer.project.v4', 'video-localizer.project.v3', 'video-localizer.workflow.v2'];
 const ID = /^[a-f0-9]{32}$/;
 const DEFAULT_CAMERA = { x: 23, y: 11, scale: 0.86 };
-const PROJECT = '基于多智能体协作的英文视频本地化系统';
 const index = new Map(schema.map(node => [node.id, node]));
-const connected = new Set(['probe_input', 'asr_diarize']);
+const modeLabels = { mock: '模拟', real: '真实' };
 const narrowScreen = matchMedia('(max-width:640px)');
 const MAX_ANCHORS = 16;
 const edgeKey = (from, to) => `${from}:${to}`;
 const edgeKeys = new Set(edges.map(([from, to]) => edgeKey(from, to)));
 const SIZE_LIMITS = { width: [220, 680], height: [155, 1440] };
-const replacedVideoFields = new Set(['source_type', 'source']);
 const elements = new Map();
+let backendModes = {};
 let runResult = null;
 let inputVideo = null;
 let config = defaults();
@@ -52,54 +31,11 @@ let future = [];
 let toastTimer;
 let minimapBounds;
 let minimapDrag = null;
-let pendingAction;
-let eventCount = 0;
-let projectId = null;
-let viewSaveTimer = null;
-let pickerRequest = 0;
-const projects = new Map();
-const openIds = new Set();
-const newId = () => crypto.randomUUID().replaceAll('-', '');
-const projectName = (name, fallback = '未命名工程') =>
-  (typeof name === 'string' ? name.trim().slice(0, 80) : '') || fallback;
-
-const LEGACY_IDS = schema.filter(node => node.id !== 'cover_localize')
-  .map(node => node.id === 'subtitle_render' ? 'subtitle_cover' : node.id);
-const LEGACY_EDGES = [
-  ['probe_input', 'asr_diarize'], ['asr_diarize', 'build_blocks'],
-  ['build_blocks', 'translate_blocks'], ['translate_blocks', 'review_blocks'],
-  ['review_blocks', 'tts_align'], ['review_blocks', 'edit_assets'],
-  ['review_blocks', 'subtitle_cover'], ['edit_assets', 'subtitle_cover'],
-  ['tts_align', 'compose_video'], ['subtitle_cover', 'compose_video'],
-  ['compose_video', 'collect_manifest'], ['collect_manifest', 'package_zip'],
-  ['review_blocks', 'translate_blocks', 'demo'],
-];
-
-const LEGACY_SUBTITLE_FIELDS = new Set([
-  'order', 'font', 'font_size', 'en_size', 'text_color', 'outline_color',
-  'outline', 'margin', 'max_chars', 'bilingual',
-]);
-
-function splitLegacyNodes(nodes, defaultsById) {
-  if (Object.keys(nodes).length !== LEGACY_IDS.length || LEGACY_IDS.some(id => !nodes[id])) {
-    throw new Error('旧项目的节点不完整。');
-  }
-  const { subtitle_cover: merged, ...other } = nodes;
-  const subtitleKeys = new Set([...LEGACY_SUBTITLE_FIELDS, ...Object.keys(defaultsById.subtitle_render.params)]);
-  const coverKeys = new Set(Object.keys(defaultsById.cover_localize.params));
-  if (!merged.params || Object.keys(merged.params).some(key => !subtitleKeys.has(key) && !coverKeys.has(key))) {
-    throw new Error('旧项目的字幕与封面节点包含未知参数。');
-  }
-  const pick = keys => Object.fromEntries(Object.entries(merged.params).filter(([key]) => keys.has(key)));
-  return {
-    ...other,
-    subtitle_render: { ...merged, params: pick(subtitleKeys) },
-    cover_localize: {
-      ...defaultsById.cover_localize,
-      params: { ...defaultsById.cover_localize.params, ...pick(coverKeys) },
-    },
-  };
-}
+let consoleLog = null;
+let logPollTimer = null;
+const LOG_DISPLAY_LIMIT = 256 * 1024;
+let viewSaveTimer;
+let serializedLayout;
 
 function validateAnchors(value) {
   if (typeof value !== 'object' || Array.isArray(value)) throw new Error('连线锚点格式无效。');
@@ -112,49 +48,20 @@ function validateAnchors(value) {
   }));
 }
 
-// Treat imported files and browser storage as untrusted input. Only known,
-// typed fields enter the UI. Exported drafts never contain API credentials.
-function validateDraft(data) {
-  if (data?.format !== 'video-localizer-ui' || ![2, 3, 4].includes(data.version) || !data.nodes) {
-    throw new Error('文件不是受支持的项目 JSON。');
-  }
-  if (data.version >= 3 && (!ID.test(data.id)
-      || JSON.stringify(data.edges) !== JSON.stringify(data.version === 3 ? LEGACY_EDGES : edges))) {
-    throw new Error('项目 ID 或节点连线与工作流版本不匹配。');
+// Restore browser-local geometry, including the last layout from older builds.
+function validateLayout(data) {
+  if (!data?.nodes || typeof data.nodes !== 'object' || Array.isArray(data.nodes)) {
+    throw new Error('画布布局无效。');
   }
   const clean = defaults();
-  const nodes = data.version < 4 ? splitLegacyNodes(data.nodes, clean) : data.nodes;
-  if (Object.keys(nodes).length !== schema.length) throw new Error('项目的节点不完整。');
   for (const node of schema) {
-    const record = nodes[node.id];
-    if (!record || !record.params || typeof record.collapsed !== 'boolean' ||
-        !Number.isFinite(record.x) || !Number.isFinite(record.y) ||
-        Math.abs(record.x) > 10000 || Math.abs(record.y) > 10000) throw new Error(`${node.title}：节点位置或结构无效。`);
-    const known = fieldsOf(node);
-    let params = record.params;
-    if (node.id === 'subtitle_render' && Object.keys(params).some(key => LEGACY_SUBTITLE_FIELDS.has(key))) {
-      const { bilingual, order } = params;
-      params = {
-        style: subtitleCatalog.default_style,
-        layout: bilingual === false ? 'zh_only' : order === '英文在上' ? 'zh_bottom' : 'zh_top',
-        ...Object.fromEntries(Object.entries(params).filter(([key]) => !LEGACY_SUBTITLE_FIELDS.has(key))),
-      };
+    const record = data.nodes[node.id] ?? (node.id === 'subtitle_cover' ? data.nodes.subtitle_render : null);
+    if (!record) continue; // A node added by a newer backend uses its default position.
+    if (typeof record.collapsed !== 'boolean' || !Number.isFinite(record.x) || !Number.isFinite(record.y)
+        || Math.abs(record.x) > 10000 || Math.abs(record.y) > 10000) {
+      throw new Error(`${node.title}：节点位置或结构无效。`);
     }
-    if (Object.keys(params).some(key => !known.some(field => field.key === key))) throw new Error(`${node.title}：包含未知参数。`);
-    for (const field of known) {
-      const value = params[field.key];
-      let valid;
-      if (field.type === 'boolean') valid = typeof value === 'boolean';
-      else if (field.type === 'number') valid = Number.isFinite(value) && value >= field.min && value <= field.max && Math.abs((value - field.min) / field.step - Math.round((value - field.min) / field.step)) < 0.000001;
-      else if (field.type === 'select') valid = field.options.includes(value);
-      else if (field.type === 'color') valid = typeof value === 'string' && /^#[a-fA-F0-9]{6}$/.test(value);
-      else valid = typeof value === 'string' && value.length <= (field.maxLength || (field.type === 'textarea' ? 4000 : 500));
-      if (!valid) throw new Error(`${node.title}：${field.label}的值无效。`);
-      clean[node.id].params[field.key] = value;
-    }
-    clean[node.id].x = record.x;
-    clean[node.id].y = record.y;
-    clean[node.id].collapsed = record.collapsed;
+    Object.assign(clean[node.id], { x: record.x, y: record.y, collapsed: record.collapsed });
     for (const [dimension, limits] of Object.entries(SIZE_LIMITS)) {
       const value = record[dimension];
       if (value === undefined || (dimension === 'height' && value === null)) continue;
@@ -164,29 +71,13 @@ function validateDraft(data) {
       clean[node.id][dimension] = value;
     }
   }
-  checkRelations(clean);
-  const view = data.version >= 3 ? validateView(data.view) : null;
-  const oldMatrix = [[40, 80], [40, 480], [40, 880], [430, 80], [430, 480],
-    [820, 80], [430, 880], [820, 880], [1210, 80], [1210, 480], [1210, 880]];
-  const oldBranches = [[40, 162], [394, 136], [748, 162], [1102, 124], [1456, 162],
-    [1810, 44], [1810, 464, 850], [2164, 350], [2164, 730, 1030],
-    [2518, 163], [2872, 137], [3226, 162]];
-  // Upgrade known default layouts without resetting manually arranged projects.
-  const legacyDefault = data.version < 4 && LEGACY_IDS.every((id, i) =>
-    data.nodes[id].x === oldMatrix[i][0] && data.nodes[id].y === oldMatrix[i][1]);
-  const branchedDefault = data.version === 4 && schema.every(({ id }, i) => {
-    const [x, ...ys] = oldBranches[i];
-    return clean[id].x === x && ys.includes(clean[id].y);
-  });
-  if (legacyDefault || branchedDefault) {
-    const previous = view && { ...clean[view.selected] };
-    arrangeLegacyNodes(clean);
-    if (view) {
-      view.camera.x += (previous.x - clean[view.selected].x) * view.camera.scale;
-      view.camera.y += (previous.y - clean[view.selected].y) * view.camera.scale;
-    }
-  }
-  return { nodes: clean, anchors: validateAnchors(data.anchors ?? {}), view };
+  const savedAnchors = data.anchors ?? {};
+  if (typeof savedAnchors !== 'object' || Array.isArray(savedAnchors)) throw new Error('连线锚点格式无效。');
+  const currentAnchors = Object.fromEntries(Object.entries(savedAnchors)
+    .map(([key, points]) => [key.split(':').map(id => id === 'subtitle_render' ? 'subtitle_cover' : id).join(':'), points])
+    .filter(([key]) => edgeKeys.has(key)));
+  const view = validateView(data.view);
+  return { nodes: clean, anchors: validateAnchors(currentAnchors), view };
 }
 
 function validateView(view) {
@@ -196,32 +87,15 @@ function validateView(view) {
   const review = view?.review;
   return {
     camera: validCamera ? { x: c.x, y: c.y, scale: c.scale } : { ...DEFAULT_CAMERA },
-    selected: view?.selected === 'subtitle_cover' ? 'subtitle_render' :
+    selected: ['subtitle_render', 'cover_localize'].includes(view?.selected) ? 'subtitle_cover' :
       index.has(view?.selected) ? view.selected : 'probe_input',
     consoleCollapsed: view?.consoleCollapsed === true,
     consoleTab: view?.consoleTab === 'output' ? 'output' : 'log',
     review: {
       tab: review?.tab === 'subtitles' ? 'subtitles' : 'workflow',
-      stage: ['initial', 'segmented', 'draft', 'final'].includes(review?.stage) ? review.stage : 'initial',
+      stage: ['initial', 'segmented', 'draft', 'final'].includes(review?.stage) ? review.stage : 'segmented',
       follow: review?.follow !== false,
       jobId: ID.test(review?.jobId) ? review.jobId : null,
-    },
-  };
-}
-function checkRelations(value) {
-  if (value.asr_diarize.params.min_speakers > value.asr_diarize.params.max_speakers) throw new Error('最少说话人数不能大于最多说话人数。');
-  if (value.build_blocks.params.target_seconds > value.build_blocks.params.max_seconds) throw new Error('目标块时长不能超过最长块时长。');
-}
-function envelope() {
-  return {
-    format: 'video-localizer-ui', version: 4, id: projectId, project: PROJECT,
-    name: projects.get(projectId).name,
-    nodes: config, edges, anchors,
-    view: {
-      camera, selected,
-      consoleCollapsed: $('console').classList.contains('collapsed'),
-      consoleTab: $('output-tab').getAttribute('aria-selected') === 'true' ? 'output' : 'log',
-      review: getReviewView(),
     },
   };
 }
@@ -232,179 +106,29 @@ function toast(message, error = false) {
   $('toast').hidden = false;
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4500);
 }
-function reportSave(project, message) {
-  project.status = message;
-  if (project.id === projectId) $('save-status').textContent = message;
-}
-
-function reportBackup(project, saved) {
-  const { fileLink } = project;
-  if (fileLink) {
-    const label = fileLink.snapshot === project.serialized ? '已保存到' : '有改动待保存到';
-    reportSave(project, `${label} ${fileLink.handle.name}`);
-  } else {
-    reportSave(project, saved ? '草稿已备份 · 按 Ctrl / ⌘ S 选择保存位置' : '正在备份草稿…');
-  }
-}
-
-// The browser keeps the handle and its last known file contents on this origin.
-function projectFileLink(id, link) {
-  return new Promise(resolve => {
-    let request;
-    try { request = indexedDB.open('video-localizer-files', 1); }
-    catch { resolve(null); return; }
-    request.onupgradeneeded = () => request.result.createObjectStore('links');
-    request.onerror = request.onblocked = () => resolve(null);
-    request.onsuccess = () => {
-      const db = request.result;
-      try {
-        const transaction = db.transaction('links', link ? 'readwrite' : 'readonly');
-        const store = transaction.objectStore('links');
-        const keys = id === undefined ? store.getAllKeys() : null;
-        const operation = keys ? store.getAll() : link ? store.put(link, id) : store.get(id);
-        transaction.oncomplete = () => {
-          db.close();
-          if (keys) resolve(operation.result.map((entry, index) => ({ ...entry, id: keys.result[index] })));
-          else resolve(operation.result ?? null);
-        };
-        transaction.onabort = () => { db.close(); resolve(null); };
-      } catch {
-        db.close();
-        resolve(null);
-      }
-    };
-  });
-}
-
-async function readProjectFile(file) {
-  if (file.size > PROJECT_FILE_LIMIT) throw new Error('工程文件不能超过 1 MB。');
-  const source = await file.text();
-  return { source, data: JSON.parse(source.replace(/^\uFEFF/, '')) };
-}
-
-function downloadProject(project, contents) {
-  const link = el('a');
-  const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
-  link.href = url;
-  link.download = `${project.name}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast('已下载工程副本。');
-}
-
-async function saveProject(saveAs = false) {
-  if (!projectId) return;
-  const project = projects.get(projectId);
-  if (project.fileSaving) return;
-  const focused = document.activeElement;
-  if (focused?.matches('[data-param]')) {
-    if (!focused.reportValidity()) return;
-    focused.blur();
-  }
-  persist(true);
-  if (!window.showSaveFilePicker) {
-    downloadProject(project, project.serialized);
-    return;
-  }
-
-  project.fileSaving = true;
-  try {
-    const previous = saveAs ? null : project.fileLink;
-    const handle = previous?.handle ?? await window.showSaveFilePicker({
-      suggestedName: `${project.name.replace(/[<>:"/\\|?*]/g, '_')}.json`,
-      types: projectFileTypes,
-    });
-    if (previous) {
-      const permission = await handle.requestPermission({ mode: 'readwrite' });
-      if (permission !== 'granted') throw new Error('写入权限未授予，可再次保存或另存为。');
-      const current = await readProjectFile(await handle.getFile());
-      if (current.source !== previous.source) throw new Error('工程文件已在外部修改，请另存为，或关闭标签后重新打开文件。');
-    }
-    if (project.id === projectId) persist();
-    const saved = JSON.parse(project.serialized);
-    if (project.name === '未命名工程') saved.name = projectName(handle.name.replace(/\.json$/i, ''));
-    const snapshot = JSON.stringify(saved);
-    const source = JSON.stringify(saved, null, 2) + '\n';
-    const writer = await handle.createWritable();
+function readLayout() {
+  for (const key of [STORAGE, ...LEGACY_LAYOUT_KEYS]) {
     try {
-      await writer.write(source);
-      await writer.close();
-    } catch (error) {
-      await writer.abort().catch(() => {});
-      throw error;
-    }
-    project.fileLink = { handle, source, snapshot, name: saved.name, lastOpened: project.lastOpened };
-    if (saved.name !== project.name) {
-      project.name = saved.name;
-      if (project.id === projectId) {
-        persist();
-        renderProjectTabs();
-      } else {
-        project.data.name = saved.name;
-      }
-    }
-    await projectFileLink(project.id, project.fileLink);
-    reportBackup(project, true);
-    toast(`已保存 ${handle.name}`);
-  } catch (error) {
-    if (error.name !== 'AbortError') toast(`保存失败：${error.message}`, true);
-  } finally {
-    project.fileSaving = false;
+      const saved = localStorage.getItem(key);
+      if (saved) return validateLayout(JSON.parse(saved));
+    } catch { /* Invalid or unavailable browser storage falls back to defaults. */ }
   }
+  return null;
 }
 
-async function saveToDisk(project) {
-  clearTimeout(project.timer);
-  if (project.saving || !project.pending) return;
-  const data = project.pending;
-  project.pending = null;
-  project.saving = true;
+function persist() {
+  const view = {
+    camera, selected,
+    consoleCollapsed: $('console').classList.contains('collapsed'),
+    consoleTab: $('output-tab').getAttribute('aria-selected') === 'true' ? 'output' : 'log',
+    review: getReviewView(),
+  };
+  const data = JSON.stringify({ nodes: config, anchors, view });
+  if (data === serializedLayout) return;
   try {
-    const response = await fetch(`/api/projects/${project.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: data,
-    });
-    if (!response.ok) throw new Error('无法保存工程文件');
-    if (!project.pending) reportBackup(project, true);
-  } catch {
-    if (project.fileLink) reportBackup(project, false);
-    else reportSave(project, project.backedUp
-      ? '草稿已备份到浏览器 · 按 Ctrl / ⌘ S 选择保存位置'
-      : '草稿备份失败 · 请保存到工程文件');
-  } finally {
-    project.saving = false;
-    if (project.pending) void saveToDisk(project);
-  }
-}
-
-function persist(immediate = false, updateMirror = false) {
-  if (!projectId) return;
-  const project = projects.get(projectId);
-  const data = JSON.stringify(envelope());
-  const changed = data !== project.serialized;
-  if (changed) {
-    project.data = JSON.parse(data);
-    project.serialized = data;
-    project.pending = data;
-    reportBackup(project, false);
-  }
-  if (changed || updateMirror) {
-    try {
-      localStorage.setItem(STORAGE, data);
-      if (changed) localStorage.setItem(`${STORAGE}.${project.id}`, data);
-      project.backedUp = true;
-    } catch {
-      project.backedUp = false;
-    }
-  }
-  if (immediate) {
-    project.pending ??= data;
-    void saveToDisk(project);
-  } else if (project.pending) {
-    clearTimeout(project.timer);
-    project.timer = setTimeout(() => void saveToDisk(project), 400);
-  }
+    localStorage.setItem(STORAGE, data);
+    serializedLayout = data;
+  } catch { /* The workbench still works without browser storage. */ }
 }
 
 function scheduleViewSave() {
@@ -437,107 +161,6 @@ function undo(redo = false) {
   persist();
   syncHistory();
 }
-async function recentProjectEntries() {
-  const stored = await projectFileLink() ?? [];
-  const entries = new Map(stored.map(link => [link.id, link]));
-  for (const { id, fileLink } of projects.values()) {
-    if (fileLink?.handle) entries.set(id, fileLink);
-  }
-  return [...entries].filter(([id, link]) => ID.test(id) && link.handle)
-    .sort(([, a], [, b]) => (b.lastOpened ?? 0) - (a.lastOpened ?? 0))
-    .map(([id, link]) => ({ id, name: projectName(link.name, link.handle.name.replace(/\.json$/i, '')) }));
-}
-
-function markProjectOpened(id) {
-  const project = projects.get(id);
-  project.lastOpened = Date.now();
-  if (!project.fileLink) return;
-  project.fileLink.lastOpened = project.lastOpened;
-  project.fileLink.name = project.name;
-  // Activation records a newly opened file after normalizing its snapshot.
-  if (project.fileLink.snapshot !== null) void projectFileLink(id, project.fileLink);
-}
-
-function readStored(storage, key) {
-  try { return JSON.parse(storage.getItem(key) || 'null'); } catch { return null; }
-}
-
-function rememberSession() {
-  try { sessionStorage.setItem(SESSION, JSON.stringify({ active: projectId, ids: [...openIds] })); }
-  catch { /* In-memory tabs still work. */ }
-  globalThis.history.replaceState(null, '', projectId ? `#project=${projectId}` : location.pathname + location.search);
-}
-
-function addProject(data, fallbackName, fileLink = null, replace = false) {
-  const parsed = data ? validateDraft(data) : { nodes: defaults(), anchors: {}, view: null };
-  const id = data?.version >= 3 ? data.id : newId();
-  if (!projects.has(id) || replace) {
-    const project = projects.get(id) ?? { id };
-    Object.assign(project, {
-      name: projectName(data?.name, fallbackName), data: parsed, fileLink,
-      lastOpened: fileLink?.lastOpened ?? Date.now(), history: [], future: [],
-      inputVideo: null, runResult: null, eventCount: 0, events: [], runLabel: '',
-      serialized: null, status: '工程已打开',
-    });
-    projects.set(id, project);
-  }
-  openIds.add(id);
-  return id;
-}
-
-async function readProject(id) {
-  for (const key of [STORAGE, ...LEGACY_STORAGE]) {
-    const backup = readStored(localStorage, key);
-    if (backup?.id === id) return backup;
-  }
-  const backup = readStored(localStorage, `${STORAGE}.${id}`);
-  if (backup?.id === id) return backup;
-  return workflowResponse(await fetch(`/api/projects/${id}`));
-}
-
-async function loadProject(id) {
-  const link = projects.get(id)?.fileLink ?? await projectFileLink(id);
-  let data = await readProject(id).catch(error => {
-    if (!link) throw error;
-    return null;
-  });
-  if (link && (!data || JSON.stringify(data) === link.snapshot)) {
-    try {
-      const file = await link.handle.getFile();
-      const latest = await readProjectFile(file);
-      if (latest.source !== link.source && latest.data.id === id) {
-        validateDraft(latest.data);
-        return addProject(latest.data, file.name, { ...link, source: latest.source, snapshot: null }, true);
-      }
-      data ??= latest.data;
-    } catch (error) {
-      if (!data) throw error;
-    }
-  }
-  return addProject(data, undefined, link);
-}
-
-async function restoreProjects() {
-  const session = readStored(sessionStorage, SESSION);
-  const requested = location.hash.match(/^#project=([a-f0-9]{32})$/)?.[1];
-  const ids = new Set(Array.isArray(session?.ids) ? session.ids.filter(id => ID.test(id)) : []);
-  if (requested) ids.add(requested);
-  await Promise.all([...ids].map(async id => {
-    try {
-      await loadProject(id);
-    } catch {
-      if (id === requested) toast('未能读取指定工程。', true);
-    }
-  }));
-  // Network responses may finish out of order. Restore the saved tab order.
-  const restored = new Set(openIds);
-  openIds.clear();
-  for (const id of ids) if (restored.has(id)) openIds.add(id);
-  const preferred = requested || session?.active;
-  const active = openIds.has(preferred) ? preferred : openIds.values().next().value;
-  activateProject(active ?? null);
-}
-
 function el(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -548,60 +171,6 @@ function svg(tag, attributes = {}) {
   const element = document.createElementNS(NS, tag);
   for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
   return element;
-}
-function control(node, field) {
-  const input = document.createElement(field.type === 'select' ? 'select' : field.type === 'textarea' ? 'textarea' : 'input');
-  input.disabled = busy;
-  input.dataset.param = field.key;
-  input.dataset.owner = node.id;
-  input.setAttribute('aria-label', `${node.title} · ${field.label}`);
-  if (field.type === 'select') {
-    for (const option of field.options) input.append(new Option(field.optionLabels?.[option] ?? option, option));
-  } else if (field.type !== 'textarea') input.type = field.type === 'boolean' ? 'checkbox' : field.type;
-  if (field.type === 'number') {
-    input.min = field.min;
-    input.max = field.max;
-    input.step = field.step;
-    input.required = true;
-  }
-  if (['text', 'textarea'].includes(field.type)) input.maxLength = field.maxLength || (field.type === 'textarea' ? 4000 : 500);
-  if (field.placeholder) input.placeholder = field.placeholder;
-  if (field.type === 'boolean') input.checked = config[node.id].params[field.key];
-  else input.value = config[node.id].params[field.key];
-  input.addEventListener('input', () => {
-    if (busy) return;
-    input.setCustomValidity('');
-    // Color controls update the CSS sample while the picker is open. Other
-    // values commit on change, so typing a number doesn't create 4 undo steps.
-    if (field.type === 'color') updateVisualPreview(node.id, field.key, input.value);
-  });
-  input.addEventListener('change', () => {
-    if (busy) return;
-    if (!input.checkValidity()) {
-      input.reportValidity();
-      return;
-    }
-    const before = snapshot();
-    const value = field.type === 'boolean' ? input.checked : field.type === 'number' ? Number(input.value) : input.value;
-    config[node.id].params[field.key] = value;
-    try { checkRelations(config); } catch (error) {
-      config = before.nodes;
-      input.value = before.nodes[node.id].params[field.key];
-      toast(error.message, true);
-      return;
-    }
-    commit(before);
-    if (node.id === 'cover_localize' && field.key === 'enabled') draw();
-    updateVisualPreview(node.id);
-
-  });
-  return input;
-}
-function updateVisualPreview(id, key, value) {
-  const preview = elements.get(id)?.querySelector('.node-preview-content');
-  if (!preview) return;
-  const values = key ? { ...config[id].params, [key]: value } : config[id].params;
-  renderPreview(preview, id, values);
 }
 function videoPicker() {
   const row = el('div', 'video-input-picker');
@@ -615,19 +184,131 @@ function videoPicker() {
   return row;
 }
 
+function updateNodeMode(card, nodeId) {
+  const mode = backendModes[nodeId] ?? '';
+  const badge = card.querySelector('.node-mode');
+  card.dataset.mode = mode;
+  badge.dataset.mode = mode;
+  badge.textContent = modeLabels[mode] ?? '未知';
+  badge.setAttribute('aria-label', `运行模式：${badge.textContent}`);
+}
+
+function applyBackendModes(modes) {
+  backendModes = modes;
+  for (const [id, card] of elements) updateNodeMode(card, id);
+  for (const step of $('step-strip').children) step.dataset.mode = modes[step.dataset.step] ?? '';
+  if (!$('workflow-panel').hidden) drawMinimap(bounds());
+}
+
+async function refreshBackendModes() {
+  try {
+    const snapshot = await workflowResponse(await fetch('/api/workflow-modes'));
+    applyBackendModes(snapshot.modes);
+    return snapshot;
+  } catch {
+    applyBackendModes({});
+    return null;
+  }
+}
+
+const modeMenu = $('node-mode-menu');
+const modeButtons = [...modeMenu.querySelectorAll('button[data-mode]')];
+let modeTarget;
+let savingMode = false;
+
+function closeNodeModes(restoreFocus = false) {
+  if (!modeMenu.matches(':popover-open')) return;
+  modeMenu.hidePopover();
+  if (restoreFocus) elements.get(modeTarget.node.id)?.querySelector('.node-header').focus({ preventScroll: true });
+}
+
+document.addEventListener('pointerdown', event => {
+  if (!modeMenu.contains(event.target)) closeNodeModes();
+});
+modeMenu.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  closeNodeModes(true);
+});
+
+function updateModeMenu(message) {
+  const { node, x, y, snapshot } = modeTarget;
+  for (const button of modeButtons) {
+    const mode = button.dataset.mode;
+    const current = snapshot?.modes[node.id] === mode;
+    const unavailable = snapshot && mode === 'real' && !snapshot.available.includes(node.id);
+    button.disabled = busy || savingMode || !snapshot || current || Boolean(unavailable);
+    button.textContent = unavailable ? '真实（待接入）' : modeLabels[mode];
+    button.setAttribute('aria-pressed', String(current));
+  }
+  $('node-mode-message').textContent = message;
+  modeMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - modeMenu.offsetWidth - 8))}px`;
+  modeMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - modeMenu.offsetHeight - 8))}px`;
+}
+
+async function openNodeModes(node, x, y) {
+  if (drag || savingMode) return;
+  const target = { node, x, y, snapshot: null };
+  modeTarget = target;
+  $('node-mode-title').textContent = `${node.title} · 运行模式`;
+  if (!modeMenu.matches(':popover-open')) modeMenu.showPopover();
+  modeMenu.focus({ preventScroll: true });
+  updateModeMenu(busy ? '任务运行中，模式已锁定。' : '正在读取节点模式…');
+  target.snapshot = await refreshBackendModes();
+  if (modeTarget !== target || !modeMenu.matches(':popover-open')) return;
+  updateModeMenu(busy ? '任务运行中，模式已锁定。' : target.snapshot
+    ? '对 CLI 和 WebUI 的后续任务生效。' : '无法读取后端节点模式。');
+  if (document.activeElement === modeMenu) modeButtons.find(button => !button.disabled)?.focus();
+}
+
+for (const button of modeButtons) {
+  button.onclick = async () => {
+    if (busy || savingMode || !modeTarget?.snapshot) return;
+    const target = modeTarget;
+    const { node, snapshot } = target;
+    const mode = button.dataset.mode;
+    savingMode = true;
+    updateModeMenu('正在保存节点模式…');
+    try {
+      const saved = await workflowResponse(await fetch('/api/workflow-modes', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: snapshot.revision, modes: { ...snapshot.modes, [node.id]: mode } }),
+      }));
+      applyBackendModes(saved.modes);
+      closeNodeModes(true);
+      toast(`${node.title}已切换为${modeLabels[mode]}，下次运行生效。`);
+    } catch (error) {
+      if (modeMenu.matches(':popover-open')) {
+        target.snapshot = await refreshBackendModes();
+        if (modeMenu.matches(':popover-open')) {
+          savingMode = false;
+          updateModeMenu(error.message);
+          modeButtons.find(option => !option.disabled)?.focus();
+        }
+      } else {
+        toast(error.message, true);
+      }
+    } finally {
+      savingMode = false;
+    }
+  };
+}
+window.addEventListener('resize', () => closeNodeModes());
+
 function renderNodes() {
   $('nodes').replaceChildren();
   elements.clear();
   for (const node of schema) {
     const card = el('article', 'node');
     card.dataset.node = node.id;
-    card.style.setProperty('--lane', categories[node.category].color);
+    card.style.setProperty('--node-category', categories[node.category].color);
     card.setAttribute('aria-label', node.title);
     const header = el('div', 'node-header');
     header.tabIndex = 0;
     header.setAttribute('role', 'button');
     header.setAttribute('aria-label', `选择${node.title}`);
-    header.title = node.description;
+    header.setAttribute('aria-keyshortcuts', 'Shift+F10 ContextMenu');
     const collapse = el('button', 'node-collapse', config[node.id].collapsed ? '+' : '−');
     collapse.setAttribute('aria-label', `折叠或展开${node.title}`);
     collapse.setAttribute('aria-expanded', String(!config[node.id].collapsed));
@@ -639,37 +320,48 @@ function renderNodes() {
       renderNodes();
       draw();
     });
-    header.append(el('span', 'node-number', node.symbol), el('h3', 'node-title', node.title), collapse);
+    const modeBadge = el('span', 'node-mode');
+    header.append(el('span', 'node-number', node.symbol), el('h3', 'node-title', node.title), modeBadge, collapse);
     header.addEventListener('click', () => selectNode(node.id));
     header.addEventListener('keydown', event => {
       if (event.target !== header) return;
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node.id); }
+      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+        event.preventDefault();
+        const rect = header.getBoundingClientRect();
+        void openNodeModes(node, rect.left, rect.bottom);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectNode(node.id);
+      }
+    });
+    card.addEventListener('contextmenu', event => {
+      if (event.target.closest('input,select,textarea,[contenteditable]')) return;
+      event.preventDefault();
+      void openNodeModes(node, event.clientX, event.clientY);
     });
     const ports = el('div', 'ports');
-    ports.append(el('span', 'port', node.input[0]), el('span', 'port out', node.output[0]));
+    ports.append(el('span', 'port', node.input), el('span', 'port out', node.output));
     const fields = el('div', 'node-fields');
     fields.setAttribute('aria-label', `${node.title}参数`);
     renderNodeFields(fields, node);
-    if (['asr_diarize', 'subtitle_render', 'cover_localize'].includes(node.id)) {
+    if (node.id === 'asr_diarize') {
       const preview = el('details', 'node-preview');
       const body = el('div', 'node-preview-content');
       preview.addEventListener('toggle', draw);
-      preview.append(el('summary', '', node.id === 'asr_diarize' ? '字幕查看' : '样式预览'), body);
-      renderPreview(body, node.id);
+      preview.append(el('summary', '', '字幕查看'), body);
+      renderPreview(body);
       fields.append(preview);
     }
     const footer = el('div', 'node-footer');
     const state = el('span', 'node-state');
-    const reset = el('button', 'node-reset', '重置参数');
-    reset.disabled = busy;
-    reset.addEventListener('click', () => resetNode(node.id));
-    footer.append(state, reset);
+    footer.append(state);
     const handle = el('button', 'node-resize');
     handle.type = 'button';
     handle.title = '拖动调整节点尺寸，也可使用方向键';
     handle.setAttribute('aria-label', `调整${node.title}尺寸`);
     handle.addEventListener('keydown', event => resizeWithKeyboard(event, node.id));
     card.append(header, el('div', 'node-id', node.id), ports, fields, footer, handle);
+    updateNodeMode(card, node.id);
     card.addEventListener('focusin', () => { if (selected !== node.id) selectNode(node.id); });
     card.addEventListener('click', event => {
       if (!event.target.closest('button,.node-header') && selected !== node.id) selectNode(node.id);
@@ -686,69 +378,160 @@ function selectNode(id) {
   updateOutput();
   draw();
 }
+const configLabels = {
+  ffprobe: 'ffprobe 路径', ffmpeg: 'FFmpeg 路径',
+  audio_stream: '音频流索引', video_stream: '视频流索引',
+  model_dir: 'Whisper 模型目录', max_duration_sec: '视频时长上限（秒）',
+  audio_recheck: '启用音频复识别', community1_python: 'Community-1 Python',
+  community1_cache: 'Community-1 缓存目录', community1_device: 'Community-1 设备',
+  num_speakers: '说话人数量', worker_timeout_sec: '说话人区分超时（秒）',
+  semantic_provider: '语义复核服务', allow_semantic_network: '允许语义复核联网',
+  semantic_max_calls: '语义复核调用上限', model: 'DeepSeek 模型',
+  timeout_sec: '请求超时（秒）', max_block_span_ms: '翻译块跨度上限（毫秒）',
+  default_terminology: '默认术语表',
+};
+const backendSettings = new Map();
+
+function configRow(key, value) {
+  const row = el('div', 'param-row node-config-value');
+  row.append(el('span', 'param-label', configLabels[key] ?? key),
+    el('output', '', value));
+  return row;
+}
+
+function settingControl(field) {
+  const { key, value, type, min, max, choices, optional } = field;
+  const input = el(choices ? 'select' : 'input');
+  input.name = key;
+  input.dataset.param = key;
+  input.setAttribute('aria-label', configLabels[key] ?? key);
+  if (choices) {
+    for (const choice of choices) input.add(new Option(choice, choice));
+  } else {
+    input.type = ({ boolean: 'checkbox', integer: 'number', number: 'number' })[type] ?? 'text';
+    if (input.type === 'number') {
+      if (min !== null) input.min = min;
+      if (max !== null) input.max = max;
+      input.step = type === 'integer' ? '1' : 'any';
+      input.required = !optional;
+    }
+    if (optional) input.placeholder = '留空自动选择';
+  }
+  if (type === 'boolean') input.checked = value;
+  else input.value = value ?? '';
+  return input;
+}
+
+function renderSettings(content, node, settings) {
+  content.replaceChildren();
+  if (!settings) {
+    const retry = el('button', '', '重新读取');
+    retry.type = 'button';
+    retry.disabled = busy;
+    retry.onclick = () => void refreshNodeSettings(node);
+    content.append(el('p', 'connection-note', '暂时无法读取后端配置。'), retry);
+    return;
+  }
+  if (settings.fixed) {
+    const entries = Object.entries(settings.fixed);
+    for (const [key, value] of entries) {
+      const display = typeof value === 'object'
+        ? Object.entries(value).map(([en, zh]) => `${en} → ${zh}`).join('、')
+        : String(value);
+      content.append(configRow(key, display));
+    }
+    content.append(el('p', 'connection-note', entries.length
+      ? node.id === 'build_blocks' ? '沿用英文分段与时间轴，由后端代码决定分块和默认术语。'
+        : '模型由 DEEPSEEK_MODEL 配置，翻译与审校共用。'
+      : '当前主图未提供此节点的业务配置。'));
+    return;
+  }
+
+  const form = el('form', 'node-config-form');
+  const fields = el('fieldset', 'param-group');
+  fields.disabled = busy;
+  fields.append(el('legend', '', 'CLI 共享配置'));
+  const inputs = [];
+  for (const field of settings.fields) {
+    if (field.readonly) {
+      fields.append(configRow(field.key, field.value || '继承当前 Python 环境'));
+      continue;
+    }
+    const row = el('label', 'param-row');
+    const input = settingControl(field);
+    row.classList.toggle('bool', field.type === 'boolean');
+    row.classList.toggle('numeric', input.type === 'number');
+    row.append(el('span', 'param-label', configLabels[field.key] ?? field.key), input);
+    fields.append(row);
+    inputs.push([input, field]);
+  }
+  const save = el('button', 'node-config-save', '应用到后端');
+  save.type = 'submit';
+  const status = el('p', 'connection-note', `config/${node.id}.toml · 后续真实任务共用`);
+  const reload = el('button', '', '重新读取');
+  reload.type = 'button';
+  reload.disabled = busy;
+  reload.onclick = () => void refreshNodeSettings(node);
+  const actions = el('div', 'node-config-actions');
+  actions.append(save, reload);
+  fields.append(actions);
+  status.setAttribute('aria-live', 'polite');
+  form.append(fields, status);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || fields.disabled) return;
+    const values = Object.fromEntries(inputs.map(([input, field]) => [
+      input.name, input.type === 'checkbox' ? input.checked
+        : field.optional && input.value === '' ? null
+        : input.type === 'number' ? input.valueAsNumber : input.value,
+    ]));
+    fields.disabled = true;
+    try {
+      const updated = await workflowResponse(await fetch(`/api/workflow-settings/${node.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: settings.revision, values }),
+      }));
+      backendSettings.set(node.id, updated);
+      renderSettings(content, node, updated);
+      toast('后端配置已保存。');
+    } catch (error) {
+      status.textContent = error.message;
+      fields.disabled = busy;
+    }
+  };
+  content.append(form);
+}
+
 function renderNodeFields(content, node) {
   if (node.id === 'probe_input') content.append(videoPicker());
-  for (const group of node.groups) {
-    const fieldset = el('fieldset', 'param-group');
-    fieldset.append(el('legend', '', group.title));
-    for (const field of group.fields) {
-      if (node.id === 'probe_input' && replacedVideoFields.has(field.key)) continue;
-      const label = el('label', 'param-row');
-      label.classList.toggle('bool', field.type === 'boolean');
-      label.classList.toggle('numeric', field.type === 'number');
-      const caption = el('span', 'param-label');
-      caption.append(document.createTextNode(field.label));
-      if (field.unit) caption.append(el('span', 'unit', field.unit));
-      label.append(caption, control(node, field));
-      if (field.help) label.append(el('small', '', field.help));
-      fieldset.append(label);
-    }
-    content.append(fieldset);
-  }
+  const settings = el('div', 'node-backend-settings');
+  if (backendSettings.has(node.id)) renderSettings(settings, node, backendSettings.get(node.id));
+  else settings.append(el('p', 'connection-note', '正在读取后端配置…'));
+  content.append(settings);
 }
-function renderPreview(content, id, values = config[id].params) {
-  content.replaceChildren();
-  if (id === 'asr_diarize') {
-    const open = el('button', '', '打开字幕查看');
-    open.onclick = openSubtitleReview;
-    const message = runResult?.english_srt_ready
-      ? '英文字幕初稿已保存，可在字幕查看中对照视频复核。'
-      : '运行工作流后，在字幕查看中对照视频检查各阶段字幕。';
-    content.append(el('p', 'connection-note', message), open);
-  } else if (id === 'subtitle_render') {
-    const style = subtitleCatalog.styles[values.style];
-    const layout = subtitleCatalog.layouts[values.layout];
-    const screen = el('div', 'subtitle-preview');
-    const scale = 0.25;
-    screen.style.paddingBottom = `${style.margin_y * scale}px`;
-    const samples = { zh: '让知识跨越语言', en: 'Let knowledge cross languages.' };
-    for (const lang of layout.lines) {
-      const line = el('div', 'subtitle-line', samples[lang]);
-      line.style.fontSize = `${style[`${lang}_size`] * scale}px`;
-      line.style.color = style[`${lang}_color`];
-      line.style.fontWeight = style.bold ? 'bold' : 'normal';
-      if (style.box) {
-        line.style.backgroundColor = style.edge_color;
-        line.style.paddingInline = '4px';
-      } else {
-        line.style.webkitTextStroke = `${style.outline * scale}px ${style.edge_color}`;
-        line.style.paintOrder = 'stroke fill';
-        line.style.textShadow = `${style.shadow * scale}px ${style.shadow * scale}px #0008`;
-      }
-      screen.append(line);
-    }
-    content.append(el('h3', 'preview-heading', `${style.label} · ${layout.label}`), screen,
-      el('p', 'preview-caption', '横屏样式示意。压制时按视频尺寸选择 720p、1080p 或 2160p 基准。'));
-  } else if (id === 'cover_localize') {
-    content.append(el('p', 'connection-note', values.enabled
-      ? '封面分支已启用 · 浏览器样式示意'
-      : '封面分支已关闭 · 下方为样式示意'));
-    const cover = el('div', 'cover-preview');
-    cover.style.background = values.cover_color;
-    cover.style.textAlign = values.cover_layout === '居中标题' ? 'center' : 'left';
-    cover.append(el('span', '', '英文视频 · 中文译制'), el('h3', '', values.cover_title), el('span', '', '知识分享 / 中文配音 / 双语字幕'));
-    content.append(el('h3', 'preview-heading', '中文封面 / 模板草图'), cover, el('p', 'preview-caption', `${values.cover_size} · ${values.cover_format} · 当前为浏览器预览，尚未生成文件。`));
+
+async function refreshNodeSettings(node) {
+  try {
+    const settings = await workflowResponse(await fetch(`/api/workflow-settings/${node.id}`));
+    backendSettings.set(node.id, settings);
+  } catch {
+    backendSettings.set(node.id, null);
   }
+  const target = elements.get(node.id)?.querySelector('.node-backend-settings');
+  if (target) renderSettings(target, node, backendSettings.get(node.id));
+  if (!$('workflow-panel').hidden) draw();
+}
+
+function renderPreview(content) {
+  const open = el('button', '', '打开字幕查看');
+  open.onclick = openSubtitleReview;
+  const message = runResult?.english_srt_ready
+    ? '英文字幕初稿已保存，可在字幕查看中对照视频复核。'
+    : runResult?.english_segments_ready
+      ? '英文分段已就绪，可在字幕查看中对照视频复核。'
+      : '运行工作流后，在字幕查看中对照视频检查各阶段字幕。';
+  content.replaceChildren(el('p', 'connection-note', message), open);
 }
 
 function renderStepStrip() {
@@ -757,7 +540,7 @@ function renderStepStrip() {
     const button = el('button', 'step-jump');
     button.title = node.title;
     button.dataset.step = node.id;
-    button.style.setProperty('--lane', categories[node.category].color);
+    button.style.setProperty('--node-category', categories[node.category].color);
     button.append(el('span', 'step-index', node.symbol), el('span', 'step-title', node.title));
     button.onclick = () => { selectNode(node.id); focusNode(); };
     strip.append(button);
@@ -766,17 +549,16 @@ function renderStepStrip() {
 const links = $('links');
 const anchorLayer = svg('g');
 const anchorHint = svg('circle', { class: 'link-anchor-hint', visibility: 'hidden' });
-const paths = edges.map(([from, to, type]) => {
+const paths = edges.map(([from, to]) => {
   const key = edgeKey(from, to);
-  const styles = { demo: 'link rework', optional: 'link optional' };
-  const path = svg('path', { class: styles[type] ?? 'link' });
+  const path = svg('path', { class: 'link' });
   path.dataset.from = from;
   path.dataset.to = to;
   const hits = svg('g', { 'data-edge': key });
   const handles = svg('g', { 'data-edge': key });
   links.append(path, hits);
   anchorLayer.append(handles);
-  return { from, to, type, key, path, hits, handles };
+  return { from, to, key, path, hits, handles };
 });
 links.append(anchorLayer, anchorHint);
 
@@ -799,7 +581,7 @@ function curveSegments(points) {
     return { move: `M${start.x},${start.y}`, command };
   });
 }
-function drawLink({ from, to, type, key, path, hits, handles }) {
+function drawLink({ from, to, key, path, hits, handles }) {
   const a = config[from], b = config[to];
   const points = anchors[key] ?? [];
   const segments = curveSegments([
@@ -808,8 +590,8 @@ function drawLink({ from, to, type, key, path, hits, handles }) {
     { x: b.x, y: b.y + portOffset(to, false) },
   ]);
   path.setAttribute('d', `${segments[0].move} ${segments.map(segment => segment.command).join(' ')}`);
-  path.style.stroke = type === 'demo' || type === 'optional' ? '' : categories[index.get(from).category].color;
-  path.classList.toggle('highlight', type !== 'demo' && (from === selected || to === selected));
+  path.style.stroke = categories[index.get(from).category].color;
+  path.classList.toggle('highlight', from === selected || to === selected);
 
   while (hits.children.length > segments.length) hits.lastElementChild.remove();
   segments.forEach(({ move, command }, i) => {
@@ -878,9 +660,8 @@ function draw() {
     const running = node.id === activeNode;
     const failed = isCurrent && ['blocked', 'failed'].includes(runResult.state);
     const done = runResult?.completed_nodes?.includes(node.id);
-    let label = connected.has(node.id) ? '等待运行' : '待接入';
-    if (node.id === 'cover_localize') label = config[node.id].params.enabled ? '可选 · 待接入' : '可选 · 已关闭';
-    if (done) label = node.id === 'asr_diarize' ? '已产出英文 SRT' : '已完成';
+    let label = '等待运行';
+    if (done) label = node.id === 'asr_diarize' ? '英文分段已就绪' : '已完成';
     if (running) label = '正在运行';
     if (failed) label = runResult.state === 'blocked' ? '尚未接入 · 已停止' : '执行失败';
     item.classList.toggle('is-active', running);
@@ -927,7 +708,8 @@ function drawMinimap(graph) {
     map.append(svg('rect', {
       x: 6 + (item.x - left) * mapScale, y: 6 + (item.y - top) * mapScale,
       width: item.width * mapScale, height: nodeHeight(node.id) * mapScale, rx: 2,
-      fill: categories[node.category].color, opacity: selected === node.id ? 0.9 : 0.4,
+      fill: backendModes[node.id] === 'mock' ? 'var(--node-mock)' : categories[node.category].color,
+      opacity: selected === node.id ? 0.9 : 0.4,
     }));
   }
   map.append(svg('rect', {
@@ -1162,263 +944,6 @@ taskDrawer.addEventListener('click', event => {
   }
 });
 
-function confirm(title, message, action, label = '确认') {
-  pendingAction = action;
-  $('dialog-title').textContent = title;
-  $('dialog-body').textContent = message;
-  $('dialog-confirm').textContent = label;
-  $('dialog').returnValue = '';
-  $('dialog').showModal();
-}
-$('dialog').addEventListener('close', () => {
-  if (!busy && $('dialog').returnValue === 'confirm') pendingAction?.();
-  pendingAction = null;
-});
-function resetNode(id) {
-  if (busy) return;
-  confirm('重置节点参数', `将「${index.get(id).title}」恢复为默认参数，保留节点位置。可以撤销。`, () => {
-    const before = snapshot();
-    config[id].params = defaults()[id].params;
-    commit(before);
-    rebuild();
-    toast('已重置节点参数。');
-  }, '重置参数');
-}
-function renderProjectTabs() {
-  const strip = $('project-tabs');
-  const scroll = strip.scrollLeft;
-  strip.replaceChildren();
-  for (const id of openIds) {
-    const { name } = projects.get(id);
-    const active = id === projectId;
-    const tab = el('div', 'project-tab');
-    tab.classList.toggle('active', active);
-    const select = el('button', 'project-tab-select', name);
-    select.title = name;
-    select.dataset.project = id;
-    select.setAttribute('role', 'tab');
-    select.setAttribute('aria-selected', String(active));
-    select.setAttribute('aria-controls', 'canvas');
-    select.tabIndex = active ? 0 : -1;
-    select.disabled = busy && !active;
-    select.onclick = () => activateProject(id);
-    const close = el('button', 'project-tab-close', '×');
-    close.setAttribute('aria-label', `关闭工程 ${name}`);
-    close.title = '关闭工程';
-    close.disabled = busy;
-    close.onclick = () => closeProject(id);
-    tab.append(select, close);
-    strip.append(tab);
-  }
-  strip.scrollLeft = scroll;
-  strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  $('new-project').disabled = busy;
-  $('open-project').disabled = busy;
-  $('save-project').disabled = !projectId;
-  $('save-as-project').disabled = !projectId;
-  $('close-project').disabled = busy || !projectId;
-  $('exit-workspace').disabled = busy || !openIds.size;
-}
-
-function cacheActiveProject() {
-  clearTimeout(viewSaveTimer);
-  if (!projectId) return;
-  const project = projects.get(projectId);
-  persist(true);
-  Object.assign(project, {
-    history, future, inputVideo, runResult, eventCount,
-    events: [...$('events').children], runLabel: $('run-status').textContent,
-  });
-}
-
-function activateProject(id, reload = false) {
-  if (busy || drag || (id && !openIds.has(id))) return;
-  const restoreFocus = $('project-tabs').contains(document.activeElement) || $('empty-project').contains(document.activeElement);
-  if (id && id === projectId && !reload) return;
-  if (id !== projectId) cacheActiveProject();
-  projectId = id;
-  const project = projects.get(id);
-  const data = project ? structuredClone(project.data) : null;
-  config = data?.nodes ?? defaults();
-  anchors = data?.anchors ?? {};
-  history = project?.history ?? [];
-  future = project?.future ?? [];
-  inputVideo = project?.inputVideo ?? null;
-  runResult = project?.runResult ?? null;
-  eventCount = project?.eventCount ?? 0;
-  $('events').replaceChildren(...(project?.events ?? []));
-  $('event-count').textContent = eventCount;
-  $('run-status').textContent = project?.runLabel || '尚未运行';
-  if (runResult) $('run-status').dataset.state = runResult.state;
-  else delete $('run-status').dataset.state;
-  $('empty-project').hidden = !!project;
-  $('workspace-views').hidden = !project;
-  $('workspace-actions').hidden = !project;
-  restoreView(data?.view ?? validateView(null));
-  renderProjectTabs();
-  syncHistory();
-  if (project) {
-    rebuild();
-    updateOutput();
-    $('save-status').textContent = project.status;
-    if (!data.view) {
-      if (narrowScreen.matches) focusNode();
-      else fit();
-    }
-    persist(false, true);
-    if (project.fileLink?.snapshot === null) {
-      project.fileLink.snapshot = project.serialized;
-      project.fileLink.name = project.name;
-      void projectFileLink(project.id, project.fileLink);
-      reportBackup(project, true);
-    }
-  } else {
-    $('workflow-panel').hidden = true;
-    $('nodes').replaceChildren();
-    elements.clear();
-    $('save-status').textContent = '没有打开的工程';
-  }
-  setTaskProject(projectId);
-  if (restoreFocus) ($('project-tabs').querySelector('[aria-selected="true"]') ?? $('empty-new')).focus();
-  rememberSession();
-}
-
-function closeProject(id) {
-  if (busy || drag || !openIds.has(id)) return;
-  const ids = [...openIds];
-  openIds.delete(id);
-  if (id === projectId) activateProject(ids[ids.indexOf(id) + 1] ?? ids[ids.indexOf(id) - 1] ?? null);
-  else {
-    renderProjectTabs();
-    rememberSession();
-  }
-}
-
-function openProject(data, fallbackName) {
-  if (busy || drag) return;
-  const id = addProject(data, fallbackName);
-  markProjectOpened(id);
-  activateProject(id);
-  if ($('project-picker').open) $('project-picker').close();
-}
-
-async function showProjectPicker() {
-  if (busy || $('project-picker').open) return;
-  const picker = $('project-picker');
-  const status = $('project-picker-status');
-  const list = $('saved-projects');
-  const request = ++pickerRequest;
-  const loading = '正在读取本机工程…';
-  status.textContent = loading;
-  list.replaceChildren();
-  picker.showModal();
-  const entries = await recentProjectEntries();
-  if (request !== pickerRequest || !picker.open) return;
-  if (status.textContent === loading) {
-    status.textContent = entries.length ? '最近打开的工程' : '暂无已关联本地文件的工程。';
-  }
-  for (const { id, name } of entries) {
-    const item = el('li');
-    const button = el('button', 'saved-project', name);
-    button.title = name;
-    button.dataset.project = id;
-    button.onclick = async () => {
-      try {
-        const alreadyOpen = openIds.has(id);
-        const loaded = alreadyOpen ? id : await loadProject(id);
-        if (!picker.open) {
-          if (!alreadyOpen) openIds.delete(loaded);
-          return;
-        }
-        markProjectOpened(loaded);
-        activateProject(loaded);
-        picker.close();
-      } catch (error) {
-        status.textContent = `打开失败：${error.message}`;
-      }
-    };
-    item.append(button);
-    list.append(item);
-  }
-}
-
-for (const [id, action] of [
-  ['new-project', () => openProject()],
-  ['open-project', showProjectPicker],
-  ['save-project', () => void saveProject()],
-  ['save-as-project', () => void saveProject(true)],
-  ['close-project', () => closeProject(projectId)],
-  ['exit-workspace', () => {
-    confirm('退出工作台', '备份草稿并关闭当前打开的所有工程。', () => {
-      openIds.clear();
-      activateProject(null);
-    }, '退出');
-  }],
-  ['about-project', () => $('about-dialog').showModal()],
-]) {
-  $(id).onclick = () => {
-    $('project-menu').hidePopover();
-    action();
-  };
-}
-$('empty-new').onclick = () => openProject();
-$('empty-open').onclick = showProjectPicker;
-async function openProjectFile(file, handle = null) {
-  const { data, source } = await readProjectFile(file);
-  validateDraft(data);
-  const existing = projects.get(data.id);
-  const linked = handle && ID.test(data.id)
-    ? existing?.fileLink ?? await projectFileLink(data.id)
-    : null;
-  if (linked) {
-    if (!await handle.isSameEntry(linked.handle)) {
-      // Two copies of one file get independent workspaces and queues.
-      data.id = newId();
-    } else if (existing && openIds.has(existing.id) &&
-        (linked.source === source || linked.snapshot !== existing.serialized)) {
-      openProject(data);
-      return;
-    }
-  }
-  if (busy || drag) return;
-  const id = addProject(data, file.name.replace(/\.json$/i, ''),
-    handle ? { handle, source, snapshot: null } : null, true);
-  markProjectOpened(id);
-  activateProject(id, true);
-  if ($('project-picker').open) $('project-picker').close();
-}
-
-function reportOpenError(error) {
-  if (error.name === 'AbortError') return;
-  const message = `打开失败：${error.message}`;
-  if ($('project-picker').open) $('project-picker-status').textContent = message;
-  else toast(message, true);
-}
-
-$('choose-project-file').onclick = async () => {
-  if (!window.showOpenFilePicker) {
-    $('project-file').click();
-    return;
-  }
-  try {
-    const [handle] = await window.showOpenFilePicker({ types: projectFileTypes });
-    await openProjectFile(await handle.getFile(), handle);
-  } catch (error) {
-    reportOpenError(error);
-  }
-};
-$('new-project-form').onsubmit = event => {
-  event.preventDefault();
-  openProject(null, projectName($('new-project-name').value));
-  $('new-project-name').value = '';
-};
-$('project-file').onchange = async event => {
-  const file = event.target.files[0];
-  event.target.value = '';
-  if (!file || busy) return;
-  try { await openProjectFile(file); }
-  catch (error) { reportOpenError(error); }
-};
 $('help').onclick = () => $('canvas-help').showModal();
 function setConsoleTab(output) {
   $('log-tab').setAttribute('aria-selected', String(!output));
@@ -1429,35 +954,87 @@ function setConsoleTab(output) {
 }
 $('log-tab').onclick = () => setConsoleTab(false);
 $('output-tab').onclick = () => setConsoleTab(true);
+function setConsoleCollapsed(collapsed) {
+  $('console').classList.toggle('collapsed', collapsed);
+  const toggle = $('console-toggle');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.setAttribute('aria-label', collapsed ? '展开运行面板' : '收起运行面板');
+}
 $('console-toggle').onclick = () => {
-  const collapsed = $('console').classList.toggle('collapsed');
-  $('console-toggle').textContent = collapsed ? '⌃' : '⌄';
-  $('console-toggle').setAttribute('aria-expanded', String(!collapsed));
-  $('console-toggle').setAttribute('aria-label', collapsed ? '展开运行面板' : '收起运行面板');
+  setConsoleCollapsed(!$('console').classList.contains('collapsed'));
   draw();
   scheduleViewSave();
 };
-function clearLog() {
-  $('events').replaceChildren();
-  eventCount = 0;
-  $('event-count').textContent = '0';
+function updateLogNotice() {
+  const message = !consoleLog || consoleLog.jobId === runResult?.jobId ? runResult?.message : '';
+  const logHint = consoleLog?.error ?? (consoleLog && !consoleLog.text && !consoleLog.offset
+    ? (consoleLog.pending ? '正在等待后端输出…' : '这个任务没有后端日志。') : '');
+  $('log-notice').textContent = [message, logHint].filter(Boolean).join(' · ')
+    || (consoleLog ? '' : '运行工作流后，这里会显示后端终端输出。');
 }
+
+function renderConsoleLog() {
+  const panel = $('log-panel');
+  const follow = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 32;
+  $('events').textContent = consoleLog?.text ?? '';
+  updateLogNotice();
+  if (follow) panel.scrollTop = panel.scrollHeight;
+}
+
+async function pollConsoleLog(log) {
+  if (log.reading) return;
+  log.reading = true;
+  try {
+    const response = await fetch(`/api/workflow-runs/${log.jobId}/logs?offset=${log.offset}`);
+    if (!response.ok) throw new Error('无法读取后端日志。');
+    const bytes = await response.arrayBuffer();
+    log.offset += bytes.byteLength;
+    log.pending = response.headers.get('X-Log-Pending') === '1';
+    log.text = (log.text + log.decoder.decode(bytes, { stream: log.pending })).slice(-LOG_DISPLAY_LIMIT);
+    log.error = null;
+  } catch (error) {
+    log.error = error.message;
+    log.pending = runResult?.state === 'running' && log.jobId === runResult.jobId;
+  } finally {
+    log.reading = false;
+  }
+  if (consoleLog !== log) return;
+  renderConsoleLog();
+  if (log.pending) logPollTimer = setTimeout(() => void pollConsoleLog(log), 700);
+}
+
+function followTaskLog(jobId) {
+  clearTimeout(logPollTimer);
+  consoleLog = jobId ? { jobId, offset: 0, text: '', pending: true, decoder: new TextDecoder() } : null;
+  renderConsoleLog();
+  if (consoleLog) void pollConsoleLog(consoleLog);
+}
+
 $('clear-log').onclick = () => {
-  clearLog();
+  if (consoleLog) consoleLog.text = '';
+  renderConsoleLog();
 };
-function appendEvent(label, message, warning = false) {
-  const item = el('li');
-  item.append(el('time', '', new Date().toLocaleTimeString('zh-CN', { hour12: false })), el('span', `log-label${warning ? ' log-warning' : ''}`, label), el('span', '', message));
-  $('events').append(item);
-  $('event-count').textContent = String(++eventCount);
-  $('log-panel').scrollTop = $('log-panel').scrollHeight;
-}
+
+document.addEventListener('open-task-log', event => {
+  $('workflow-tab').click();
+  if ($('console').classList.contains('collapsed')) $('console-toggle').click();
+  setConsoleTab(false);
+  followTaskLog(event.detail);
+});
+
 function updateOutput() {
   let output = `${index.get(selected).title}尚无运行输出。`;
   if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
+  else if (selected === 'asr_diarize' && runResult?.english_segments_ready) output = '英文分段已就绪。';
   else if (runResult?.node === selected) output = runResult.message;
   else if (runResult?.completed_nodes?.includes(selected)) output = '节点已完成。';
-  $('console-output').textContent = output;
+  const panel = $('console-output');
+  panel.textContent = output;
+  if (runResult?.final_zip_ready && runResult.jobId) {
+    const download = el('a', '', '下载发布包');
+    download.href = `/api/workflow-runs/${runResult.jobId}/final-zip`;
+    panel.append(document.createElement('br'), download);
+  }
 }
 
 $('workflow-video').onchange = event => {
@@ -1487,26 +1064,27 @@ function showRunResult(status) {
   const labels = { running: '工作流运行中…', blocked: '工作流已停止',
     failed: '工作流执行失败', complete: '工作流已完成' };
   runStatus.textContent = labels[status.state];
-  if (status.message) appendEvent(index.get(status.node).title, status.message, ['blocked', 'failed'].includes(status.state));
-  updateVisualPreview('asr_diarize');
+  updateLogNotice();
+  const preview = elements.get('asr_diarize')?.querySelector('.node-preview-content');
+  if (preview) renderPreview(preview);
   updateOutput();
   draw();
 }
 
 function setRunLock(locked) {
   busy = locked;
+  if (locked) closeNodeModes();
   for (const id of ['run', 'clear-log']) {
     $(id).disabled = locked;
   }
   $('draft-state').hidden = !locked;
-  renderProjectTabs();
   $('draft-state').classList.toggle('is-locked', locked);
   syncHistory();
   renderNodes();
 }
 
 $('run').onclick = async () => {
-  if (busy || !projectId) return;
+  if (busy) return;
   if (!inputVideo) {
     selectNode('probe_input');
     focusNode();
@@ -1515,12 +1093,10 @@ $('run').onclick = async () => {
   }
 
   setRunLock(true);
-  $('console').classList.remove('collapsed');
-  $('console-toggle').setAttribute('aria-expanded', 'true');
-  $('console-toggle').setAttribute('aria-label', '收起运行面板');
-  $('console-toggle').textContent = '⌄';
+  void refreshBackendModes();
+  setConsoleCollapsed(false);
   setConsoleTab(false);
-  clearLog();
+  followTaskLog(null);
   showRunResult({ state: 'running', node: 'probe_input', message: `正在读取 ${inputVideo.name}…` });
   try {
     const { job_id: jobId } = await workflowResponse(await fetch('/api/workflow-runs', {
@@ -1528,20 +1104,21 @@ $('run').onclick = async () => {
       headers: {
         'Content-Type': 'application/octet-stream',
         'X-Video-Name': encodeURIComponent(inputVideo.name),
-        'X-Project-Id': projectId,
       },
       body: inputVideo,
     }));
     const jobUrl = `/api/workflow-runs/${jobId}`;
+    runResult.jobId = jobId;
+    followTaskLog(jobId);
     setPreviewJob(jobId);
     void refreshTasks({ latest: true });
     while (true) {
       const status = await workflowResponse(await fetch(jobUrl));
-      status.node ??= runResult.node;
+      status.jobId = jobId;
       const hasNewSrt = status.english_srt_ready && !runResult.english_srt_ready;
-      if (hasNewSrt || status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
+      const completedChanged = (status.completed_nodes ?? []).join() !== (runResult.completed_nodes ?? []).join();
+      if (hasNewSrt || completedChanged || status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
         showRunResult(status);
-        if (hasNewSrt) appendEvent('中间产物', '英文字幕初稿已保存，供后续流程使用。');
       }
       if (status.state !== 'running') {
         refreshSubtitleReview();
@@ -1561,8 +1138,7 @@ $('run').onclick = async () => {
 document.addEventListener('keydown', event => {
   const typing = event.target.closest('input,select,textarea,[contenteditable=true]');
   if (document.querySelector('dialog[open]')) return;
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void saveProject(); }
-  if (typing || !$('subtitle-panel').hidden || !projectId) return;
+  if (typing || !$('subtitle-panel').hidden) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); undo(event.shiftKey); }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key.toLowerCase() === 'f') { event.preventDefault(); fit(); }
@@ -1572,7 +1148,7 @@ document.addEventListener('keydown', event => {
 for (const tablist of document.querySelectorAll('[role=tablist]')) {
   tablist.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [...tablist.querySelectorAll('[role=tab]:not(:disabled)')];
+    const tabs = [...tablist.querySelectorAll('[role=tab]:not(:disabled):not([hidden])')];
     const current = tabs.indexOf(document.activeElement);
     if (current < 0) return;
     event.preventDefault();
@@ -1584,18 +1160,30 @@ for (const tablist of document.querySelectorAll('[role=tablist]')) {
 function restoreView(view) {
   camera = view.camera;
   selected = view.selected;
-  const collapsed = view.consoleCollapsed;
-  $('console').classList.toggle('collapsed', collapsed);
-  $('console-toggle').textContent = collapsed ? '⌃' : '⌄';
-  $('console-toggle').setAttribute('aria-expanded', String(!collapsed));
-  $('console-toggle').setAttribute('aria-label', collapsed ? '展开运行面板' : '收起运行面板');
+  setConsoleCollapsed(view.consoleCollapsed);
   setConsoleTab(view.consoleTab === 'output');
   restoreReviewView(view.review, inputVideo);
 }
 
 $('status-node-count').textContent = `${schema.length} 节点`;
 renderStepStrip();
-new ResizeObserver(() => { if (projectId) draw(); }).observe($('canvas'));
-document.addEventListener('project-view-change', scheduleViewSave);
+new ResizeObserver(() => { if (!$('workflow-panel').hidden) draw(); }).observe($('canvas'));
+document.addEventListener('canvas-view-change', scheduleViewSave);
 window.addEventListener('pagehide', () => persist());
-await restoreProjects();
+const layout = readLayout();
+if (layout) ({ nodes: config, anchors } = layout);
+if (location.hash.startsWith('#project=')) {
+  globalThis.history.replaceState(null, '', location.pathname + location.search);
+}
+for (const id of ['workspace-views', 'canvas-tools', 'workspace-actions']) $(id).hidden = false;
+restoreView(layout?.view ?? validateView(null));
+rebuild();
+syncHistory();
+updateOutput();
+if (!layout) {
+  if (narrowScreen.matches) focusNode();
+  else fit();
+}
+persist();
+void refreshBackendModes();
+for (const node of schema) void refreshNodeSettings(node);

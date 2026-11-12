@@ -1,0 +1,153 @@
+{
+  "format": "video-localizer-ui",
+  "version": 5,
+  "id": "5b2ace67db764919bdfb7d742b90959d",
+  "project": "基于多智能体协作的英文视频本地化系统",
+  "name": "测试工程",
+  "nodes": {
+    "probe_input": {
+      "x": -797.4799872076023,
+      "y": 127.77636147660819,
+      "width": 333,
+      "height": null,
+      "collapsed": false
+    },
+    "asr_diarize": {
+      "x": -238.97015899122806,
+      "y": 128.54566794590636,
+      "width": 362,
+      "height": null,
+      "collapsed": false
+    },
+    "build_blocks": {
+      "x": 348.1994014985383,
+      "y": 129.14363395467836,
+      "width": 423,
+      "height": null,
+      "collapsed": false
+    },
+    "translate_blocks": {
+      "x": 987.59,
+      "y": 95.95,
+      "width": 429,
+      "height": null,
+      "collapsed": false
+    },
+    "review_blocks": {
+      "x": 1529.1334257696863,
+      "y": 93.15108486921434,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "tts_align": {
+      "x": 2511.0464001610644,
+      "y": -135.00213263035377,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "edit_assets": {
+      "x": 2027.888187863629,
+      "y": 379.8833298732587,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "subtitle_cover": {
+      "x": 2513.0699515967876,
+      "y": 115.52495036822542,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "compose_video": {
+      "x": 3017.1775221595494,
+      "y": 111.88929313103607,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "collect_manifest": {
+      "x": 3425.216996344264,
+      "y": 103.08519382875842,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    },
+    "package_zip": {
+      "x": 3823.83931181274,
+      "y": 96.52790796174126,
+      "width": 282,
+      "height": null,
+      "collapsed": false
+    }
+  },
+  "edges": [
+    [
+      "probe_input",
+      "asr_diarize"
+    ],
+    [
+      "asr_diarize",
+      "build_blocks"
+    ],
+    [
+      "build_blocks",
+      "translate_blocks"
+    ],
+    [
+      "translate_blocks",
+      "review_blocks"
+    ],
+    [
+      "review_blocks",
+      "tts_align"
+    ],
+    [
+      "review_blocks",
+      "edit_assets"
+    ],
+    [
+      "review_blocks",
+      "subtitle_cover"
+    ],
+    [
+      "edit_assets",
+      "subtitle_cover"
+    ],
+    [
+      "tts_align",
+      "compose_video"
+    ],
+    [
+      "subtitle_cover",
+      "compose_video"
+    ],
+    [
+      "compose_video",
+      "collect_manifest"
+    ],
+    [
+      "collect_manifest",
+      "package_zip"
+    ]
+  ],
+  "anchors": {},
+  "view": {
+    "camera": {
+      "x": -536.3069856491416,
+      "y": 44.5093716469957,
+      "scale": 0.7339055793991416
+    },
+    "selected": "review_blocks",
+    "consoleCollapsed": false,
+    "consoleTab": "log",
+    "review": {
+      "tab": "workflow",
+      "stage": "segmented",
+      "follow": true,
+      "jobId": null
+    }
+  }
+}

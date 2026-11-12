@@ -4,6 +4,20 @@ from langgraph.graph import END, START, StateGraph
 
 from .registry import NODE_NAMES, resolve_nodes
 
+# Business edges shared by the graph and configuration validation.
+WORKFLOW_EDGES = (
+    ("probe_input", "asr_diarize"),
+    ("asr_diarize", "build_blocks"),
+    ("build_blocks", "translate_blocks"),
+    ("translate_blocks", "review_blocks"),
+    ("review_blocks", "tts_align"),
+    ("review_blocks", "edit_assets"),
+    (("review_blocks", "edit_assets"), "subtitle_cover"),
+    (("tts_align", "subtitle_cover"), "compose_video"),
+    ("compose_video", "collect_manifest"),
+    ("collect_manifest", "package_zip"),
+)
+
 
 def build_graph():
     """Build and compile the basic workflow graph."""
@@ -19,15 +33,7 @@ def build_graph():
     for name, function in nodes.items():
         graph.add_node(name, function)
     graph.add_edge(START, "probe_input")
-    graph.add_edge("probe_input", "asr_diarize")
-    graph.add_edge("asr_diarize", "build_blocks")
-    graph.add_edge("build_blocks", "translate_blocks")
-    graph.add_edge("translate_blocks", "review_blocks")
-    graph.add_edge("review_blocks", "tts_align")
-    graph.add_edge("review_blocks", "edit_assets")
-    graph.add_edge(["review_blocks", "edit_assets"], "subtitle_cover")
-    graph.add_edge(["tts_align", "subtitle_cover"], "compose_video")
-    graph.add_edge("compose_video", "collect_manifest")
-    graph.add_edge("collect_manifest", "package_zip")
+    for source, target in WORKFLOW_EDGES:
+        graph.add_edge(list(source) if isinstance(source, tuple) else source, target)
     graph.add_edge("package_zip", END)
     return graph.compile()

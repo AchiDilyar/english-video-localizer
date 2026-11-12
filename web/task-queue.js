@@ -9,10 +9,8 @@ let offset = 0;
 let selected = null;
 let jobs = [];
 let sequence = 0;
-let projectId = null;
-const clearing = new Set();
-
-const queueUrl = id => `/api/workflow-runs?project_id=${id}`;
+let clearing = false;
+const queueUrl = '/api/workflow-runs';
 
 function el(tag, text, className) {
   const element = document.createElement(tag);
@@ -36,21 +34,32 @@ function renderDetail() {
     detail.append(el('p', `已完成 ${job.completed_nodes.map(id => nodeNames.get(id) ?? id).join(' → ')}`));
   }
   detail.append(el('code', job.id));
-  const open = el('button', job.english_srt_ready ? '查看视频与字幕' : '查看源视频');
+  const open = el('button', job.english_srt_ready || job.english_segments_ready ? '查看视频与字幕' : '查看源视频');
   open.type = 'button';
   open.onclick = () => {
     $('node-inspector').close();
     openTaskSubtitles(job.id);
   };
-  detail.append(open);
+  const log = el('button', '查看后端日志');
+  log.type = 'button';
+  log.onclick = () => {
+    $('node-inspector').close();
+    document.dispatchEvent(new CustomEvent('open-task-log', { detail: job.id }));
+  };
+  detail.append(open, log);
+  if (job.final_zip_ready) {
+    const download = el('a', '下载发布包');
+    download.href = `/api/workflow-runs/${job.id}/final-zip`;
+    detail.append(download);
+  }
 }
 
 function renderList(total, hasFinished = false) {
   const list = $('task-list');
   list.replaceChildren();
   const active = jobs.filter(job => job.state === 'running').length;
-  $('task-summary').textContent = total ? `${total} 次运行${active ? ` · 本页 ${active} 项运行中` : ''}` : '当前工程还没有任务。';
-  $('tasks-clear').disabled = !hasFinished || clearing.has(projectId);
+  $('task-summary').textContent = total ? `${total} 次运行${active ? ` · 本页 ${active} 项运行中` : ''}` : '还没有运行任务。';
+  $('tasks-clear').disabled = !hasFinished || clearing;
   $('task-pagination').hidden = total <= pageSize;
   $('task-prev').disabled = offset === 0;
   $('task-next').disabled = offset + pageSize >= total;
@@ -81,23 +90,12 @@ function renderList(total, hasFinished = false) {
   renderDetail();
 }
 
-export function setTaskProject(id) {
-  if (id === projectId) return;
-  projectId = id;
-  sequence++;
-  offset = 0;
-  selected = null;
-  jobs = [];
-  renderList(0);
-  if (id) void refreshTasks();
-}
-
 export async function refreshTasks({ latest = false } = {}) {
   if (latest) offset = 0;
-  if (!projectId || clearing.has(projectId) || !$('node-inspector').getClientRects().length) return;
+  if (clearing || !$('node-inspector').getClientRects().length) return;
   const request = ++sequence;
   try {
-    const response = await fetch(`${queueUrl(projectId)}&offset=${offset}`);
+    const response = await fetch(`${queueUrl}?offset=${offset}`);
     if (!response.ok) throw new Error('无法读取任务记录。');
     const result = await response.json();
     if (request !== sequence) return;
@@ -115,28 +113,24 @@ export async function refreshTasks({ latest = false } = {}) {
 }
 
 $('tasks-clear').onclick = async () => {
-  const id = projectId;
-  if (!id || $('tasks-clear').disabled) return;
-  clearing.add(id);
+  if (clearing || $('tasks-clear').disabled) return;
+  clearing = true;
   sequence++;
   $('tasks-clear').disabled = true;
   try {
-    const response = await fetch(queueUrl(id), { method: 'DELETE' });
-    if (!response.ok) throw new Error('无法清空工程队列。');
+    const response = await fetch(queueUrl, { method: 'DELETE' });
+    if (!response.ok) throw new Error();
     const result = await response.json();
-    clearing.delete(id);
-    if (projectId === id) {
-      offset = 0;
-      selected = null;
-      jobs = result.jobs;
-      renderList(result.total, result.has_finished);
-    }
+    offset = 0;
+    selected = null;
+    jobs = result.jobs;
+    clearing = false;
+    renderList(result.total, result.has_finished);
   } catch {
-    clearing.delete(id);
-    if (projectId === id) {
-      $('task-summary').textContent = '清空失败，可刷新队列后重试。';
-      $('tasks-clear').disabled = false;
-    }
+    $('task-summary').textContent = '清空失败，可刷新队列后重试。';
+    $('tasks-clear').disabled = false;
+  } finally {
+    clearing = false;
   }
 };
 $('tasks-refresh').onclick = () => { void refreshTasks(); };
