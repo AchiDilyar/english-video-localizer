@@ -1,6 +1,6 @@
 # 项目代码架构设计
 
-版本：v1.4.0
+版本：v1.4.1
 最后更新：2026-11-12
 
 ---
@@ -357,7 +357,7 @@ run-input [--work-dir PATH] [--input FILENAME]
 
 项目使用的外部命令行工具（当前为 FFmpeg/ffprobe）统一按以下顺序查找：
 
-1. 仓库根目录 `.tools/` 下的指定路径，如 `.tools/ffmpeg/bin/ffmpeg`；
+1. 仓库根目录 `.tools/` 下的指定路径。`ffmpeg`和`ffprobe`工具在 `.tools/ffmpeg/bin` 下查找，查找路径含`.exe`后缀，**仅 Windows 平台有效**；
 2. 系统 `PATH`。
 
 节点不得自行拼接其他路径。两个位置都找不到时抛出明确异常，按节点失败处理（见第 8 节），不静默降级、不跳过。
@@ -365,3 +365,5 @@ run-input [--work-dir PATH] [--input FILENAME]
 `.tools/`目录已加入`.gitignore`忽略，所有工具相关文件不得上传至远端。
 
 多个节点需要同一工具时，查找顺序与失败行为必须一致。是否在 `utils/` 下提供共享查找函数由 F 决定；提供时，节点应调用共享函数，不各自实现。
+
+**已知限制**：`.tools/ffmpeg/bin/` 查找路径当前仅实现 Windows 平台（含 `.exe` 后缀）。Linux/macOS 请使用系统 `PATH` 中的 `ffmpeg`/`ffprobe`，通过 `shutil.which` 查找，该方式跨平台兼容。影响范围：`mocks/compose_video.py` 与 `tests/smoke/test_full_pipeline.py` 的 `.tools` 分支仅在 Windows 可用；B/E 角色节点内部的 `.tools` 查找同理，具体位置由 B/E 确认。

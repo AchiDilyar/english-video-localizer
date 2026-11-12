@@ -70,6 +70,9 @@ en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/dow
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["project"]
+markers = [
+    "slow: end to end slow test",
+]
 
 [tool.ruff]
 line-length = 100
