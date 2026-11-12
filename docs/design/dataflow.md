@@ -1,6 +1,6 @@
 # 项目数据流设计
 
-版本：v1.2.1
+版本：v1.3.1
 最后更新：2026-11-09
 
 ---
@@ -224,6 +224,7 @@ utils 提供三类函数：
 ## 6. 最终产物说明
 
 - 最终 ZIP 是唯一对外交付的最终产物。
-- 成片、双语 SRT、封面图、发布文案等均为发布包内文件或中间产物，不是独立对外交付的最终产物。
+- 最终 ZIP 包含以下五项：`final_video（video/final.mp4）`、`bilingual_srt（subtitles/bilingual.srt）`、`cover_image（cover/cover.jpg）`、`edit_assets（edit_assets.json）`、`manifest（manifest.json）`。`PackageManifest.entries` 必须完整列出以上五项，且包含 `manifest.json` 自身。
+- 其余产物（`dub_audio`、`source_audio`、`burnin_subtitle`、`tts_audio`、`tts_clips`、`segments`、`blocks`、`translated_blocks`、`reviewed_blocks`）为中间产物或调试副本，不进 ZIP。
 - `package_zip` 完成后，CLI 输出运行状态与最终产物路径；CLI 出口的具体约定见 `architecture.md`。
 - `package_zip` 完成后主流程不再做业务后处理。

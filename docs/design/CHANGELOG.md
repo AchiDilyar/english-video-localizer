@@ -164,3 +164,18 @@
 ### 修改原因
 - 团队已确认沿用 `uv` 管理依赖，需明确运行和依赖添加方式，避免裸 `python` / `pip` 导致环境不一致。
 - 原“四份文档强制同版本号”在仅部分文档修改时会产生无意义升版；改为按实际修改升版，减少维护成本，同时保留统一版本号体系。
+
+## 2026-11-12 docs(dataflow): 明确最终 ZIP 内容清单
+
+### 版本变更
+`v1.3.0` -> `v1.3.1`
+
+### 涉及文档
+- `dataflow.md`
+
+### 修改内容
+- 第 6 节明确最终 ZIP 包含五项：`final_video`、`bilingual_srt`、`cover_image`、`edit_assets.json`、`manifest.json`；`PackageManifest.entries` 必须完整列出以上五项且包含 `manifest.json` 自身。
+- 明确 `dub_audio`、`source_audio`、`burnin_subtitle`、`tts_audio`、`tts_clips`、`segments`、`blocks`、`translated_blocks`、`reviewed_blocks` 为中间产物或调试副本，不进 ZIP。
+
+### 修改原因
+- 原第 6 节仅以“发布包内文件或中间产物”笼统表述，未逐项说明哪些进 ZIP；`dub_audio` 是否进 ZIP 无法从文档确定，导致 `package_zip` 实现与文档可能不一致。
