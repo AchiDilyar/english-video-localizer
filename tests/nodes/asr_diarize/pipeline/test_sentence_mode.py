@@ -29,10 +29,12 @@ class SentenceV2(unittest.TestCase):
             words.append({'word':t,'start':start,'end':start+.3})
         return words
 
-    def test_pause_inside_sentence_does_not_split(self):
+    def test_long_pause_can_split_for_subtitle_duration(self):
         words=self.words('Today we explain what computation is.',gap_after=4);original=copy.deepcopy(words)
         rows,review=sentences_from_words(words,self.nlp)
-        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['end_ms'],7300)
+        self.assertGreater(len(rows),1);self.assertEqual(rows[-1]['end_ms'],7300)
+        self.assertTrue(all(r['end_ms']-r['start_ms']<=4000 for r in rows))
+        self.assertEqual(' '.join(r['en'] for r in rows),'Today we explain what computation is.')
         self.assertEqual(words,original);self.assertFalse(review['original_asr_timestamps_persisted'])
 
     def test_two_complete_sentences_are_not_joined(self):
@@ -41,8 +43,9 @@ class SentenceV2(unittest.TestCase):
 
     def test_semantic_continuation_repair(self):
         rows,review=sentences_from_words(self.words("We discuss mathematical operations. You can do with Python."),self.nlp)
-        self.assertEqual(len(rows),1)
-        self.assertEqual(rows[0]['en'],'We discuss mathematical operations you can do with Python.')
+        self.assertGreater(len(rows),1)
+        self.assertEqual(' '.join(r['en'] for r in rows),'We discuss mathematical operations you can do with Python.')
+        self.assertTrue(all(len(r['en'])<=42 for r in rows))
         self.assertTrue(review['automatic_repairs'])
 
     def test_dependent_clause_is_joined_to_main_clause(self):

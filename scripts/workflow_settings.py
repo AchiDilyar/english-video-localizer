@@ -35,15 +35,18 @@ def settings_snapshot(node: str, source: bytes) -> dict:
     model = OPTIONS[node]
     values = model.model_validate(tomllib.loads(source.decode("utf-8"))).model_dump()
     fields = []
-    for key, schema in model.model_json_schema()["properties"].items():
+    definition = model.model_json_schema()
+    for key, schema in definition["properties"].items():
         variants = schema.get("anyOf", [schema])
-        spec = next(item for item in variants if item["type"] != "null")
+        spec = next(item for item in variants if item.get("type") != "null")
+        if "$ref" in spec:
+            spec = definition["$defs"][spec["$ref"].rsplit("/", 1)[-1]]
         fields.append({
             "key": key,
             "value": values[key],
             "type": spec["type"],
-            "optional": any(item["type"] == "null" for item in variants),
-            "readonly": key in READ_ONLY,
+            "optional": any(item.get("type") == "null" for item in variants),
+            "readonly": key in READ_ONLY or spec["type"] in {"object", "array"},
             "choices": CHOICES.get(key),
             "min": spec.get("minimum", spec.get("exclusiveMinimum")),
             "max": spec.get("maximum"),
@@ -101,7 +104,11 @@ def save_settings(path: Path, node: str, payload: dict) -> dict:
             raise ValueError(f"无法更新 {key}，请检查 TOML 格式。")
         if key in expected:
             encoded = json.dumps(expected[key], ensure_ascii=False, allow_nan=False)
-            text += ("" if not text or text.endswith("\n") else "\n") + f"{key} = {encoded}\n"
+            # Root settings must precede TOML tables such as [subtitle].
+            table = re.search(r"(?m)^\s*\[", text)
+            position = table.start() if table else len(text)
+            prefix, suffix = text[:position], text[position:]
+            text = prefix + ("" if not prefix or prefix.endswith("\n") else "\n") + f"{key} = {encoded}\n" + suffix
 
     updated = text.encode("utf-8")
     if tomllib.loads(text) != expected:

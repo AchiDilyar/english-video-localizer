@@ -73,3 +73,20 @@ def test_probe_round_trip(tmp_path):
     assert options.ffprobe == '/tmp/media "tools"/ffprobe'
     assert options.audio_stream == 2
     assert updated == settings_snapshot("probe_input", path.read_bytes())
+
+
+def test_subtitle_table_survives_workbench_root_edits(tmp_path):
+    path = tmp_path / "asr_diarize.toml"
+    path.write_text('audio_recheck = true\n[subtitle]\nmax_chars = 40\ntarget_min_chars = 35\n')
+    snapshot = settings_snapshot("asr_diarize", path.read_bytes())
+    subtitle = next(field for field in snapshot["fields"] if field["key"] == "subtitle")
+    assert subtitle["type"] == "object" and subtitle["readonly"]
+    save_settings(path, "asr_diarize", {
+        "revision": snapshot["revision"], "values": {"num_speakers": 2, "audio_recheck": False},
+    })
+    parsed = tomllib.loads(path.read_text())
+    assert parsed["num_speakers"] == 2 and parsed["audio_recheck"] is False
+    assert parsed["subtitle"] == {"max_chars": 40, "target_min_chars": 35}
+    snapshot = settings_snapshot("asr_diarize", path.read_bytes())
+    with pytest.raises(ValueError):
+        save_settings(path, "asr_diarize", {"revision": snapshot["revision"], "values": {"subtitle": {"max_chars": 1}}})
