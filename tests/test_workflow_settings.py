@@ -90,3 +90,22 @@ def test_subtitle_table_survives_workbench_root_edits(tmp_path):
     snapshot = settings_snapshot("asr_diarize", path.read_bytes())
     with pytest.raises(ValueError):
         save_settings(path, "asr_diarize", {"revision": snapshot["revision"], "values": {"subtitle": {"max_chars": 1}}})
+
+
+
+def test_subtitle_style_and_layout_use_backend_catalog(tmp_path):
+    path = tmp_path / "subtitle_cover.toml"
+    path.touch()
+    snapshot = settings_snapshot("subtitle_cover", b"")
+    fields = {field["key"]: field for field in snapshot["fields"]}
+    assert fields["style"]["choices"] == ["clean", "contrast", "serif", "refined"]
+    assert fields["layout"]["choices"] == ["zh_only", "zh_top", "zh_bottom"]
+    assert fields["layout"]["choice_labels"]["zh_bottom"] == "双语 · 译文在下"
+    saved = save_settings(path, "subtitle_cover", {
+        "revision": snapshot["revision"], "values": {"style": "contrast", "layout": "zh_bottom"},
+    })
+    assert tomllib.loads(path.read_text()) == {"style": "contrast", "layout": "zh_bottom"}
+    with pytest.raises(ValidationError, match="未知的字幕风格"):
+        save_settings(path, "subtitle_cover", {
+            "revision": saved["revision"], "values": {"style": "unsupported"},
+        })

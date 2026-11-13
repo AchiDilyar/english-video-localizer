@@ -379,6 +379,8 @@ function selectNode(id) {
   draw();
 }
 const configLabels = {
+  fade_enabled: '字幕渐入渐出',
+  resolution: '输出分辨率', bitrate: '视频码率档位',
   ffprobe: 'ffprobe 路径', ffmpeg: 'FFmpeg 路径',
   audio_stream: '音频流索引', video_stream: '视频流索引',
   model_dir: 'Whisper 模型目录', max_duration_sec: '视频时长上限（秒）',
@@ -388,9 +390,55 @@ const configLabels = {
   semantic_provider: '语义复核服务', allow_semantic_network: '允许语义复核联网',
   semantic_max_calls: '语义复核调用上限', model: 'DeepSeek 模型',
   timeout_sec: '请求超时（秒）', max_block_span_ms: '翻译块跨度上限（毫秒）',
-  default_terminology: '默认术语表',
+  default_terminology: '默认术语表', style: '字幕风格', layout: '语言排布',
 };
 const backendSettings = new Map();
+const savingSettings = new Set();
+let settingsQueue = Promise.resolve();
+let subtitleCatalog;
+
+function subtitleStylePreview(form) {
+  const preview = el('figure', 'subtitle-style-preview');
+  const frame = el('div', 'subtitle-style-frame');
+  preview.append(el('figcaption', '', '字幕样式预览'), frame);
+  subtitleCatalog ??= fetch('/subtitle-styles.json').then(workflowResponse).catch(error => {
+    subtitleCatalog = null;
+    throw error;
+  });
+  const catalog = subtitleCatalog;
+  const update = async () => {
+    try {
+      const { styles, layouts, geometry, appearance } = await catalog;
+      const style = { ...appearance, ...styles[form.elements.style.value] };
+      const layout = layouts[form.elements.layout.value];
+      frame.style.setProperty('--subtitle-side', `${geometry.margin_x / geometry.width * 100}%`);
+      frame.replaceChildren(...layout.lines.map(lang => {
+        const line = el('span', 'subtitle-style-line',
+          lang === 'zh' ? '让知识跨越语言。' : 'Let knowledge cross languages.');
+        line.lang = lang === 'zh' ? 'zh-Hans' : 'en';
+        line.style.bottom = `${layout.margin_y[lang] / geometry.height * 100}%`;
+        line.style.fontFamily = `${style.font ?? layout.font}, "Arial Unicode MS", sans-serif`;
+        line.style.fontSize = `${geometry[`${lang}_size`] / geometry.width * 100}cqw`;
+        line.style.color = style.color;
+        const edge = `${style[`${lang}_outline`] / geometry.width * 100}cqw`;
+        const edgeColor = style[`${lang}_edge`];
+        if (style.box) {
+          line.style.backgroundColor = edgeColor;
+          line.style.paddingInline = edge;
+        } else {
+          line.style.webkitTextStroke = `${edge} ${edgeColor}`;
+          if (style.shadow) {
+            line.style.textShadow = `0 ${style.shadow / geometry.width * 100}cqw 0 ${style[`${lang}_background`] ?? style.background}`;
+          }
+        }
+        return line;
+      }));
+    } catch {
+      frame.textContent = '暂时无法加载样式预览';
+    }
+  };
+  return { preview, update };
+}
 
 function configRow(key, value) {
   const row = el('div', 'param-row node-config-value');
@@ -400,13 +448,13 @@ function configRow(key, value) {
 }
 
 function settingControl(field) {
-  const { key, value, type, min, max, choices, optional } = field;
+  const { key, value, type, min, max, choices, choice_labels: labels, optional } = field;
   const input = el(choices ? 'select' : 'input');
   input.name = key;
   input.dataset.param = key;
   input.setAttribute('aria-label', configLabels[key] ?? key);
   if (choices) {
-    for (const choice of choices) input.add(new Option(choice, choice));
+    for (const choice of choices) input.add(new Option(labels?.[choice] ?? choice, choice));
   } else {
     input.type = ({ boolean: 'checkbox', integer: 'number', number: 'number' })[type] ?? 'text';
     if (input.type === 'number') {
@@ -425,11 +473,7 @@ function settingControl(field) {
 function renderSettings(content, node, settings) {
   content.replaceChildren();
   if (!settings) {
-    const retry = el('button', '', '重新读取');
-    retry.type = 'button';
-    retry.disabled = busy;
-    retry.onclick = () => void refreshNodeSettings(node);
-    content.append(el('p', 'connection-note', '暂时无法读取后端配置。'), retry);
+    content.append(el('p', 'connection-note', '暂时无法读取后端配置，请刷新页面。'));
     return;
   }
   if (settings.fixed) {
@@ -440,21 +484,20 @@ function renderSettings(content, node, settings) {
         : String(value);
       content.append(configRow(key, display));
     }
-    content.append(el('p', 'connection-note', entries.length
-      ? node.id === 'build_blocks' ? '沿用英文分段与时间轴，由后端代码决定分块和默认术语。'
-        : '模型由 DEEPSEEK_MODEL 配置，翻译与审校共用。'
-      : '当前主图未提供此节点的业务配置。'));
     return;
   }
 
   const form = el('form', 'node-config-form');
   const fields = el('fieldset', 'param-group');
-  fields.disabled = busy;
+  fields.disabled = busy || savingSettings.has(node.id);
   fields.append(el('legend', '', 'CLI 共享配置'));
   const inputs = [];
   for (const field of settings.fields) {
     if (field.readonly) {
-      fields.append(configRow(field.key, field.value || '继承当前 Python 环境'));
+      const value = field.type === 'object'
+        ? Object.entries(field.value ?? {}).map(([key, value]) => `${key} = ${value}`).join(' · ')
+        : field.value || '继承当前 Python 环境';
+      fields.append(configRow(field.key, value));
       continue;
     }
     const row = el('label', 'param-row');
@@ -465,40 +508,52 @@ function renderSettings(content, node, settings) {
     fields.append(row);
     inputs.push([input, field]);
   }
-  const save = el('button', 'node-config-save', '应用到后端');
-  save.type = 'submit';
-  const status = el('p', 'connection-note', `config/${node.id}.toml · 后续真实任务共用`);
-  const reload = el('button', '', '重新读取');
-  reload.type = 'button';
-  reload.disabled = busy;
-  reload.onclick = () => void refreshNodeSettings(node);
-  const actions = el('div', 'node-config-actions');
-  actions.append(save, reload);
-  fields.append(actions);
-  status.setAttribute('aria-live', 'polite');
-  form.append(fields, status);
+  form.append(fields);
+  let updatePreview;
+  if (node.id === 'subtitle_cover') {
+    const { preview, update } = subtitleStylePreview(form);
+    updatePreview = update;
+    fields.append(preview);
+    void update();
+  }
+  form.onchange = () => {
+    void updatePreview?.();
+    form.requestSubmit();
+  };
   form.onsubmit = async event => {
     event.preventDefault();
-    if (busy || fields.disabled) return;
+    if (busy || fields.disabled || savingSettings.has(node.id)) return;
     const values = Object.fromEntries(inputs.map(([input, field]) => [
       input.name, input.type === 'checkbox' ? input.checked
         : field.optional && input.value === '' ? null
         : input.type === 'number' ? input.valueAsNumber : input.value,
     ]));
     fields.disabled = true;
+    savingSettings.add(node.id);
+    $('run').disabled = true;
+    form.querySelector('[role="alert"]')?.remove();
     try {
-      const updated = await workflowResponse(await fetch(`/api/workflow-settings/${node.id}`, {
+      const save = settingsQueue.then(async () => workflowResponse(await fetch(`/api/workflow-settings/${node.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ revision: settings.revision, values }),
-      }));
-      backendSettings.set(node.id, updated);
-      renderSettings(content, node, updated);
-      toast('后端配置已保存。');
+      })));
+      settingsQueue = save.catch(() => {});
+      backendSettings.set(node.id, await save);
     } catch (error) {
-      status.textContent = error.message;
-      fields.disabled = busy;
+      const target = elements.get(node.id)?.querySelector('.node-backend-settings') ?? content;
+      savingSettings.delete(node.id);
+      renderSettings(target, node, settings);
+      const message = el('p', 'connection-note', error.message || '无法保存节点配置。');
+      message.setAttribute('role', 'alert');
+      target.querySelector('form').append(message);
+      return;
+    } finally {
+      savingSettings.delete(node.id);
+      $('run').disabled = busy || savingSettings.size > 0;
     }
+    const target = elements.get(node.id)?.querySelector('.node-backend-settings') ?? content;
+    renderSettings(target, node, backendSettings.get(node.id));
   };
   content.append(form);
 }
@@ -1026,13 +1081,20 @@ function updateOutput() {
   let output = `${index.get(selected).title}尚无运行输出。`;
   if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
   else if (selected === 'asr_diarize' && runResult?.english_segments_ready) output = '英文分段已就绪。';
+  else if (selected === 'subtitle_cover' && runResult?.completed_nodes?.includes(selected)) {
+    output = '烧录字幕 subtitles/burnin.ass 已生成。';
+    if (runResult.subtitle_srt_ready) output += '原文、译文和双语 SRT 已保存在同一目录。';
+  }
+  else if (selected === 'subtitle_cover' && runResult?.subtitle_srt_ready) {
+    output = '原文、译文和双语 SRT 已生成，等待烧录字幕 burnin.ass。';
+  }
   else if (runResult?.node === selected) output = runResult.message;
   else if (runResult?.completed_nodes?.includes(selected)) output = '节点已完成。';
   const panel = $('console-output');
   panel.textContent = output;
-  if (runResult?.final_zip_ready && runResult.jobId) {
-    const download = el('a', '', '下载发布包');
-    download.href = `/api/workflow-runs/${runResult.jobId}/final-zip`;
+  if (runResult?.final_video_ready && runResult.jobId) {
+    const download = el('a', '', '下载成片 MP4');
+    download.href = `/api/workflow-runs/${runResult.jobId}/final-video`;
     panel.append(document.createElement('br'), download);
   }
 }
@@ -1084,7 +1146,7 @@ function setRunLock(locked) {
 }
 
 $('run').onclick = async () => {
-  if (busy) return;
+  if (busy || savingSettings.size) return;
   if (!inputVideo) {
     selectNode('probe_input');
     focusNode();
@@ -1117,7 +1179,8 @@ $('run').onclick = async () => {
       status.jobId = jobId;
       const hasNewSrt = status.english_srt_ready && !runResult.english_srt_ready;
       const completedChanged = (status.completed_nodes ?? []).join() !== (runResult.completed_nodes ?? []).join();
-      if (hasNewSrt || completedChanged || status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
+      if (hasNewSrt || completedChanged || status.subtitle_srt_ready !== runResult.subtitle_srt_ready ||
+          status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
         showRunResult(status);
       }
       if (status.state !== 'running') {
@@ -1165,6 +1228,18 @@ function restoreView(view) {
   restoreReviewView(view.review, inputVideo);
 }
 
+async function restoreRunStatus(jobId) {
+  if (!jobId) return;
+  try {
+    const status = await workflowResponse(await fetch(`/api/workflow-runs/${jobId}`));
+    if (!runResult && getReviewView().jobId === jobId && status.state !== 'running') {
+      showRunResult({ ...status, jobId });
+    }
+  } catch {
+    // The saved task may no longer be available.
+  }
+}
+
 $('status-node-count').textContent = `${schema.length} 节点`;
 renderStepStrip();
 new ResizeObserver(() => { if (!$('workflow-panel').hidden) draw(); }).observe($('canvas'));
@@ -1185,5 +1260,6 @@ if (!layout) {
   else fit();
 }
 persist();
+void restoreRunStatus(getReviewView().jobId);
 void refreshBackendModes();
 for (const node of schema) void refreshNodeSettings(node);

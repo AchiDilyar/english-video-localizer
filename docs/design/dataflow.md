@@ -88,6 +88,8 @@
 | 分段音频清单 | `tts_clips` | 基础版 | 逐段中文口播音频的元数据清单 | `list[TTSClip]` | `tts/clips.json` |
 | 分段音频文件 | `tts_audio` | 基础版 | 逐段中文口播 WAV 音频 | - | `tts/`，文件名由 `TTSClip.audio_path` 提供 |
 | 中文配音音轨 | `dub_audio` | 基础版 | 组装后的整条中文配音 | - | `audio/dub.wav` |
+| 原文 SRT | `english_srt` | E 本地实现，待确认 | 转写分段的英文原文 | - | `subtitles/english_segmented.srt` |
+| 译文 SRT | `chinese_srt` | E 本地实现，待确认 | 审校后的中文字幕 | - | `subtitles/chinese.srt` |
 | 双语 SRT | `bilingual_srt` | 基础版 | 发布用双语字幕 | - | `subtitles/bilingual.srt` |
 | 烧录字幕 | `burnin_subtitle` | 基础版 | 供 FFmpeg 烧录的字幕 | - | `subtitles/burnin.ass` |
 | 成片 | `final_video` | 基础版 | 中文配音成片 | - | `video/final.mp4` |
@@ -122,7 +124,9 @@ work_dir/
     seg_0002.wav
     ...
   subtitles/
-    bilingual.srt        # 发布用双语字幕
+    english_segmented.srt # 原文字幕
+    chinese.srt           # 审校后译文字幕
+    bilingual.srt         # 双语字幕
     burnin.ass           # 烧录用字幕
   video/
     final.mp4            # 中文配音成片
@@ -225,6 +229,6 @@ utils 提供三类函数：
 
 - `compose_video` 完成后主流程进入 END。
 
-- 双语 SRT、烧录字幕、中文配音音轨、分段音频、分段与翻译审校 JSON 等均为中间产物或调试副本，不构成对外交付的最终产物。
+- 原文、译文及双语 SRT、烧录字幕、中文配音音轨、分段音频、分段与翻译审校 JSON 等均为中间产物或调试副本，不构成对外交付的最终产物。
 
 - CLI 输出运行状态与 `final_video` 的路径。

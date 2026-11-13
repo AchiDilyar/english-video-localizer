@@ -38,10 +38,18 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
     assert.deepEqual(await page.locator('.node').evaluateAll(cards => cards.map(card => card.dataset.node)), graph.nodes);
     assert.deepEqual(await page.locator('.link').evaluateAll(wires =>
       wires.map(wire => [wire.dataset.from, wire.dataset.to])), graph.edges);
+    assert.deepEqual(graph.nodes, [
+      'probe_input', 'asr_diarize', 'build_blocks', 'translate_blocks', 'review_blocks',
+      'tts_align', 'subtitle_cover', 'compose_video',
+    ]);
+    assert.deepEqual(graph.edges.slice(4), [
+      ['review_blocks', 'tts_align'], ['review_blocks', 'subtitle_cover'],
+      ['tts_align', 'compose_video'], ['subtitle_cover', 'compose_video'],
+    ]);
     const modeResponse = await page.request.get(new URL('/api/workflow-modes', base).href);
     assert.equal(modeResponse.ok(), true);
     const { modes } = await modeResponse.json();
-    assert.equal(Object.keys(modes).length, 11);
+    assert.deepEqual(Object.keys(modes), graph.nodes);
     for (const [node, mode] of Object.entries(modes)) {
       const label = mode === 'mock' ? '模拟' : '真实';
       await page.locator(`[data-node="${node}"] .node-mode[data-mode="${mode}"]`)
@@ -126,17 +134,25 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
     oldDraft.nodes.subtitle_render = { ...oldDraft.nodes.subtitle_cover, x: 2345, y: 185,
       params: { order: '英文在上', bilingual: true, font_size: 54 } };
     oldDraft.nodes.cover_localize = { ...oldDraft.nodes.subtitle_cover };
+    oldDraft.nodes.edit_assets = { ...oldDraft.nodes.subtitle_cover };
+    oldDraft.nodes.collect_manifest = { ...oldDraft.nodes.subtitle_cover };
+    oldDraft.nodes.package_zip = { ...oldDraft.nodes.subtitle_cover };
     delete oldDraft.nodes.subtitle_cover;
     oldDraft.nodes.tts_align.width = 480;
     oldDraft.view.selected = 'subtitle_render';
-    oldDraft.anchors = { 'subtitle_render:compose_video': [{ x: 2650, y: 160 }] };
+    oldDraft.anchors = {
+      'subtitle_render:compose_video': [{ x: 2650, y: 160 }],
+      'review_blocks:edit_assets': [{ x: 2100, y: 300 }],
+      'compose_video:collect_manifest': [{ x: 3500, y: 300 }],
+      'collect_manifest:package_zip': [{ x: 3800, y: 300 }],
+    };
     await loadLayout(oldDraft, true);
     const migrated = await stored();
     assert.equal(migrated.nodes.tts_align.width, 480);
     assert.deepEqual(geometry(migrated.nodes.subtitle_cover), [2345, 185, 282]);
-    assert.equal(migrated.nodes.cover_localize, undefined);
+    assert.deepEqual(Object.keys(migrated.nodes), graph.nodes);
     assert.equal(migrated.nodes.subtitle_cover.params, undefined);
-    assert.deepEqual(migrated.anchors['subtitle_cover:compose_video'], [{ x: 2650, y: 160 }]);
+    assert.deepEqual(migrated.anchors, { 'subtitle_cover:compose_video': [{ x: 2650, y: 160 }] });
 
     // Moving a card across an unrelated connection leaves that curve intact.
     const unaffectedLink = page.locator('[data-from="review_blocks"][data-to="subtitle_cover"]');
@@ -171,12 +187,13 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
       ? route.fulfill({ json: {...asrSettings, fields: asrSettings.fields.map(field =>
           field.key === 'num_speakers' ? {...field, value: 2} : field)} })
       : route.continue());
-    await page.locator('.node.selected .node-config-save').click();
+    await speakerField.press('Tab');
     const { revision, values } = (await browserWrite).postDataJSON();
     assert.equal(revision, asrSettings.revision);
     assert.equal(values.num_speakers, 2);
     assert.equal(values.community1_python, undefined);
-    await page.getByText('后端配置已保存。', {exact: true}).waitFor();
+    await page.waitForFunction(() => !document.querySelector('#run').disabled);
+    assert.equal(await page.getByText('后端配置已保存。', {exact: true}).count(), 0);
     assert.equal(await speakerField.inputValue(), '2');
     assert.equal((await stored()).nodes.asr_diarize.params, undefined);
     await page.unroute(endpoint);
@@ -308,9 +325,94 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
     assert.equal(await input('asr_diarize', 'model_dir').isEnabled(), true);
     await page.unroute(runEndpoint);
 
-    await inspect('字幕与封面');
-    await page.locator('.node.selected').getByText('当前主图未提供此节点的业务配置。').waitFor();
-    assert.equal(await page.locator('.node.selected [data-param]').count(), 0);
+    let assReady = false;
+    await page.unroute(jobEndpoint);
+    await page.route(jobEndpoint, route => route.fulfill({ json: {
+      state: assReady ? 'blocked' : 'running',
+      completed_nodes: assReady ? ['review_blocks', 'subtitle_cover'] : ['review_blocks'],
+      subtitle_srt_ready: true, final_video_ready: false,
+      message: assReady ? '烧录字幕 ASS 已生成，成片尚未生成。' : '正在执行后端工作流。',
+    } }));
+    await page.route(runEndpoint, route => route.fulfill({ status: 202, json: { job_id: jobId } }));
+    await page.locator('#run').click();
+    await inspect('字幕压制准备');
+    await page.locator('#output-tab').click();
+    await page.locator('#console-output').filter({ hasText: '等待烧录字幕 burnin.ass' }).waitFor();
+    assert.equal(await page.locator('[data-node="subtitle_cover"].is-done').count(), 0);
+    assReady = true;
+    await page.getByText('工作流已停止', { exact: true }).waitFor();
+    await page.locator('[data-node="subtitle_cover"].is-done .node-state').filter({ hasText: '已完成' }).waitFor();
+    assert.match(await page.locator('#console-output').textContent(), /subtitles\/burnin\.ass 已生成/);
+    assert.equal(await page.locator('#console-output').getByRole('link', { name: '下载成片 MP4' }).count(), 0);
+    await page.reload();
+    await page.locator('[data-node="subtitle_cover"].is-done').waitFor();
+    await page.locator('#workflow-video').setInputFiles({
+      name: 'sample.mp4', mimeType: 'video/mp4', buffer: Buffer.from('mock upload'),
+    });
+    await page.unroute(runEndpoint);
+
+    const completed = {
+      state: 'complete', completed_nodes: graph.nodes, final_video_ready: true, message: '成片已生成。',
+    };
+    const videoPath = `/api/workflow-runs/${jobId}/final-video`;
+    await page.unroute(jobEndpoint);
+    await page.route(jobEndpoint, route => route.fulfill({ json: completed }));
+    await page.route(runEndpoint, route => route.fulfill({ status: 202, json: { job_id: jobId } }));
+    await page.route(`${runEndpoint}?offset=*`, route => route.fulfill({
+      json: {
+        jobs: [{ id: jobId, filename: 'sample.mp4', created_at: 0, ...completed }],
+        total: 1, has_finished: true,
+      },
+    }));
+    await page.locator('#run').click();
+    await page.getByText('工作流已完成', { exact: true }).waitFor();
+    await page.locator('#output-tab').click();
+    const outputDownload = page.locator('#console-output').getByRole('link', { name: '下载成片 MP4' });
+    await outputDownload.waitFor({ state: 'attached' });
+    assert.equal(await outputDownload.getAttribute('href'), videoPath);
+    await page.locator('#task-queue-toggle').click();
+    await page.locator(`[data-job-id="${jobId}"]`).click();
+    const queueDownload = taskDrawer.getByRole('link', { name: '下载成片 MP4' });
+    assert.equal(await queueDownload.getAttribute('href'), videoPath);
+    await page.keyboard.press('Escape');
+    await page.unroute(runEndpoint);
+
+    await inspect('字幕压制准备');
+    const styleOptions = input('subtitle_cover', 'style').locator('option');
+    const layoutOptions = input('subtitle_cover', 'layout').locator('option');
+    await styleOptions.first().waitFor({state: 'attached'});
+    assert.deepEqual(await styleOptions.allTextContents(), ['默认样式', '高对比底框', '宋体细描边', '简约精致']);
+    assert.deepEqual(await layoutOptions.allTextContents(), ['仅译文', '双语 · 译文在上', '双语 · 译文在下']);
+    const subtitleSettingsUrl = '**/api/workflow-settings/subtitle_cover';
+    const subtitleSettings = await (await page.request.get(new URL('/api/workflow-settings/subtitle_cover', base).href)).json();
+    const savedStyle = subtitleSettings.fields.find(field => field.key === 'style').value;
+    const savedLayout = subtitleSettings.fields.find(field => field.key === 'layout').value;
+    const savedFade = subtitleSettings.fields.find(field => field.key === 'fade_enabled').value;
+    const nextLayout = savedLayout === 'zh_bottom' ? 'zh_top' : 'zh_bottom';
+    await page.route(subtitleSettingsUrl, route => {
+      assert.deepEqual(route.request().postDataJSON(), {
+        revision: subtitleSettings.revision, values: { style: savedStyle, layout: nextLayout, fade_enabled: savedFade },
+      });
+      return route.fulfill({ json: {
+        ...subtitleSettings,
+        fields: subtitleSettings.fields.map(field => ({
+          ...field, value: field.key === 'layout' ? nextLayout : field.value,
+        })),
+      } });
+    });
+    assert.equal(await page.locator('.node.selected .node-config-save').count(), 0);
+    const autoSaved = page.waitForResponse(response =>
+      response.url().endsWith('/api/workflow-settings/subtitle_cover') && response.request().method() === 'PUT');
+    await input('subtitle_cover', 'layout').selectOption(nextLayout);
+    assert.equal((await autoSaved).ok(), true);
+    await page.waitForFunction(() => !document.querySelector('#run').disabled);
+    assert.equal(await page.getByText('后端配置已保存。', {exact: true}).count(), 0);
+    assert.equal(await input('subtitle_cover', 'layout').inputValue(), nextLayout);
+    const previewLines = page.locator('[data-node="subtitle_cover"] .subtitle-style-line');
+    await previewLines.nth(1).waitFor();
+    assert.deepEqual(await previewLines.evaluateAll(lines => lines.map(line => line.lang)),
+      nextLayout === 'zh_bottom' ? ['en', 'zh-Hans'] : ['zh-Hans', 'en']);
+    await page.unroute(subtitleSettingsUrl);
 
     assert.equal(await page.locator('#product-logo').evaluate(logo => logo.tabIndex), -1);
     await page.locator('#product-logo').click();
@@ -332,9 +434,9 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
     assert.equal(await mobileHelp.isVisible(), true);
     await mobileHelp.getByRole('button', { name: '关闭画布帮助' }).click();
     assert.equal(await mobileHelp.isVisible(), false);
-    await mobile.locator('.step-jump').filter({ hasText: '字幕与封面' }).click();
+    await mobile.locator('.step-jump').filter({ hasText: '字幕压制准备' }).click();
     assert.equal(await mobile.locator('#node-inspector').isVisible(), false);
-    await mobile.locator('.node.selected').getByText('当前主图未提供此节点的业务配置。').waitFor();
+    await mobile.locator('.node.selected [data-param="style"]').waitFor();
     await mobile.locator('#task-queue-toggle').click();
     assert.equal(await mobile.locator('#node-inspector').isVisible(), true);
     await mobile.locator('#inspector-close').click();

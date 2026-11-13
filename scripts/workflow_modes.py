@@ -43,7 +43,8 @@ def save_modes(path: Path, payload: dict) -> dict:
         raise ValueError(f"以下节点尚无真实实现：{', '.join(unavailable)}。")
     for source, target in WORKFLOW_EDGES:
         upstream = source if isinstance(source, tuple) else (source,)
-        missing = [name for name in upstream if requested[name] == "mock"]
+        missing = [name for name in upstream if requested[name] == "mock"
+                   and (target, name) != ("compose_video", "tts_align")]
         if requested[target] == "real" and missing:
             raise ValueError(f"{target} 需要启用真实上游节点：{', '.join(missing)}。")
 

@@ -11,14 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from contracts import Segment, TranslatedSegment, TranslationBlock, TTSClip
 from pydantic import BaseModel, ConfigDict, model_validator
-
-from contracts import (
-    Segment,
-    TTSClip,
-    TranslationBlock,
-    TranslatedSegment,
-)
 
 
 class ArtifactSpec(BaseModel):
@@ -61,6 +55,8 @@ ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
     # 二进制产物，路径确定
     "source_audio": ArtifactSpec(path="audio/source.wav", path_kind="fixed"),
     "dub_audio": ArtifactSpec(path="audio/dub.wav", path_kind="fixed"),
+    "english_srt": ArtifactSpec(path="subtitles/english_segmented.srt", path_kind="fixed"),
+    "chinese_srt": ArtifactSpec(path="subtitles/chinese.srt", path_kind="fixed"),
     "bilingual_srt": ArtifactSpec(path="subtitles/bilingual.srt", path_kind="fixed"),
     "burnin_subtitle": ArtifactSpec(path="subtitles/burnin.ass", path_kind="fixed"),
     "final_video": ArtifactSpec(path="video/final.mp4", path_kind="fixed"),

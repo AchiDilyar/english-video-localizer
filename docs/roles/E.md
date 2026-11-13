@@ -38,12 +38,14 @@ E 的联调通过 F 的 CLI 或调用同一入口的 WebUI。旧版 B 文件交�
 
 ## 批量制作 ASS 样张
 
-`config/subtitle_styles.json` 是 ASS 模板的配置来源。修改三类样式的 1080p 基准字号、描边、阴影和边距后，运行：
+`config/subtitle_styles.json` 定义四款 ASS 风格和共享的 2160p 排版基准。节点从 `config/subtitle_cover.toml` 读取工作台保存的风格和语言排布，输出 `subtitles/burnin.ass`。可用以下命令生成样张。
 
 ```bash
 uv run --locked python -m project.subtitle_templates --output jobs/subtitle-style-samples
 ```
 
-命令生成 27 份带示例字幕的 ASS。可加 `--font-name` 指定本机已安装的字体名称，然后用 Aegisub 或 FFmpeg 逐类预览。模板分为 `clean`、`cinema`、`contrast` 三类，每类有 `zh_only`、`zh_top`、`zh_bottom` 三种排布。内部双语 SRT 保留中文在上、英文在下，画面上的语言顺序由 ASS 决定。
+命令生成 60 份带示例字幕的 ASS。可加 `--font-name` 指定本机已安装的字体名称，然后用 Aegisub 或 FFmpeg 逐类预览。每款风格有 `zh_only`、`zh_top`、`zh_bottom` 三种排布。内部双语 SRT 保留中文在上、英文在下，画面上的语言顺序由 ASS 决定。
 
-自动匹配规则按画面高度选档，720 及以下用 720p，721–1080 用 1080p，更高用 2160p。ASS 脚本宽度按原画面宽高比计算。首版验收横屏，竖屏排版待验证。模板选择在正式压制节点支持对应配置后接入 WebUI。
+画面高度向上匹配 480p、720p、1080p、1440p 或 2160p，超过 2160p 时使用 2160p 档。字号、描边、阴影和垂直边距随档位缩放，ASS 脚本宽度和水平边距按原画面宽高比计算。首版验收横屏。
+
+默认样式沿用样稿的 MiSans Medium 和 MiSans。烧录机需要安装 ASS 文件所引用的字体。

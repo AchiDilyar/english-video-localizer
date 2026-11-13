@@ -11,13 +11,34 @@ from graph.builder import WORKFLOW_EDGES
 from graph.registry import NODE_NAMES
 from nodes.asr_diarize.node import ASROptions
 from nodes.build_blocks import DEFAULT_TERMINOLOGY, MAX_BLOCK_SPAN_MS
+from nodes.compose_settings import BITRATE_LABELS, RESOLUTION_LABELS, ComposeOptions
 from nodes.probe_input.node import ProbeOptions
+from nodes.subtitle_cover import SubtitleCoverOptions
 from nodes.translate_blocks._text_model import REQUEST_TIMEOUT_SEC, text_model_env, text_model_name
+from subtitle_templates import LAYOUTS, STYLES
 from workflow_modes import ConfigChanged, replace_config
 
-OPTIONS = {"probe_input": ProbeOptions, "asr_diarize": ASROptions}
+OPTIONS = {
+    "probe_input": ProbeOptions,
+    "asr_diarize": ASROptions,
+    "subtitle_cover": SubtitleCoverOptions,
+    "compose_video": ComposeOptions,
+}
 READ_ONLY = {"community1_python"}
-CHOICES = {"community1_device": ["cpu", "cuda"], "semantic_provider": ["none", "deepseek"]}
+CHOICES = {
+    "community1_device": ["cpu", "cuda"],
+    "semantic_provider": ["none", "deepseek"],
+    "style": list(STYLES),
+    "layout": list(LAYOUTS),
+    "resolution": list(RESOLUTION_LABELS),
+    "bitrate": list(BITRATE_LABELS),
+}
+CHOICE_LABELS = {
+    "style": {key: item["label"] for key, item in STYLES.items()},
+    "layout": {key: item["label"] for key, item in LAYOUTS.items()},
+    "resolution": RESOLUTION_LABELS,
+    "bitrate": BITRATE_LABELS,
+}
 
 
 def workflow_schema() -> dict:
@@ -48,6 +69,7 @@ def settings_snapshot(node: str, source: bytes) -> dict:
             "optional": any(item.get("type") == "null" for item in variants),
             "readonly": key in READ_ONLY or spec["type"] in {"object", "array"},
             "choices": CHOICES.get(key),
+            "choice_labels": CHOICE_LABELS.get(key),
             "min": spec.get("minimum", spec.get("exclusiveMinimum")),
             "max": spec.get("maximum"),
         })

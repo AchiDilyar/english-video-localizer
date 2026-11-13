@@ -7,13 +7,16 @@ import re
 import shutil
 import subprocess
 import sys
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import chain
 from pathlib import Path
 from threading import Lock, Thread
 from time import time
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
+from graph.registry import NODE_NAMES
 from subtitle_preview import subtitle_stage
 from utils.artifacts import ARTIFACT_SPECS
 from workflow_modes import ConfigChanged, mode_snapshot, save_modes
@@ -34,11 +37,12 @@ MAX_UPLOAD = 2 * 1024**3
 LOG_CHUNK_BYTES = 64 * 1024
 JOB_ROUTE = re.compile(
     r"/api/workflow-runs/([0-9a-f]{32})"
-    r"(?:/(preview-video|final-zip|logs|subtitles/(initial|segmented|draft|final)))?"
+    r"(?:/(preview-video|final-video|logs|subtitles/(initial|segmented|draft|final)))?"
 )
 SETTINGS_ROUTE = re.compile(r"/api/workflow-settings/([a-z_]+)")
 JOB_ID = re.compile(r"[0-9a-f]{32}")
 BYTE_RANGE = re.compile(r"bytes=(\d*)-(\d*)")
+SUBTITLE_SRT_ARTIFACTS = ("english_srt", "chinese_srt", "bilingual_srt")
 NODE_ARTIFACTS = {
     "asr_diarize": "segments",
     "build_blocks": "blocks",
@@ -47,8 +51,6 @@ NODE_ARTIFACTS = {
     "tts_align": "dub_audio",
     "subtitle_cover": "burnin_subtitle",
     "compose_video": "final_video",
-    "collect_manifest": "manifest",
-    "package_zip": "final_zip",
 }
 
 
@@ -61,6 +63,30 @@ def write_status(job: Path, **status) -> None:
 def artifact_ready(job: Path, name: str) -> bool:
     path = job / ARTIFACT_SPECS[name].path
     return path.is_file() and path.stat().st_size > 0
+
+
+def save_job_input(source, size: int, job: Path) -> None:
+    """Store one physical copy per upload digest, keeping the CLI's input.mp4."""
+    pending = job / "input.upload"
+    digest = sha256()
+    with pending.open("xb") as output:
+        while size:
+            chunk = source.read(min(size, 1024 * 1024))
+            if not chunk:
+                raise OSError("Incomplete upload")
+            output.write(chunk)
+            digest.update(chunk)
+            size -= len(chunk)
+
+    shared = job.parent / ".inputs"
+    shared.mkdir(exist_ok=True)
+    stored = shared / (digest.hexdigest() + ".mp4")
+    try:
+        os.link(pending, stored)
+    except FileExistsError:
+        pass
+    os.link(stored, job / "input.mp4")
+    pending.unlink()
 
 
 def cli_failure(job: Path) -> str:
@@ -76,7 +102,7 @@ def cli_failure(job: Path) -> str:
 class WorkflowServer(ThreadingHTTPServer):
     def __init__(self, port: int):
         super().__init__(("127.0.0.1", port), WorkflowHandler)
-        self.jobs = ROOT / "jobs" / "webui"
+        self.jobs = ROOT / "jobs"
         self.config_dir = ROOT / "config"
         self.mock_config = self.config_dir / "mock.toml"
         self.worker_lock = Lock()
@@ -93,18 +119,32 @@ class WorkflowServer(ThreadingHTTPServer):
         artifacts = status.pop("artifacts", {})
         if artifacts.get("english_srt") == "english.srt" or status["state"] == "complete":
             status["english_srt_ready"] = (job / "b" / "english.srt").is_file()
-        completed = [node for node, artifact in NODE_ARTIFACTS.items() if artifact_ready(job, artifact)]
-        if completed:
-            status["completed_nodes"] = list(dict.fromkeys([*status.get("completed_nodes", []), *completed]))
+        completed = {node for node, artifact in NODE_ARTIFACTS.items() if artifact_ready(job, artifact)}
+        status["subtitle_srt_ready"] = all(artifact_ready(job, name) for name in SUBTITLE_SRT_ARTIFACTS)
+        recorded = set(status.get("completed_nodes", []))
+        recorded.discard("subtitle_cover")
+        if status["state"] == "blocked" and not status.get("node"):
+            if "subtitle_cover" in completed:
+                status["message"] = "烧录字幕 ASS 已生成，成片尚未生成。"
+            elif status["subtitle_srt_ready"]:
+                status["message"] = "三份 SRT 已生成，烧录字幕 ASS 尚未生成。"
+        status["completed_nodes"] = [node for node in NODE_NAMES if node in recorded or node in completed]
+        if status.get("node") not in NODE_NAMES:
+            status.pop("node", None)
+        status.pop("final_zip_ready", None)
         status["english_segments_ready"] = "asr_diarize" in completed
-        status["final_zip_ready"] = status["state"] == "complete" and "package_zip" in completed
+        status["final_video_ready"] = status["state"] == "complete" and "compose_video" in completed
         return status
 
+    def find_run(self, job_id: str) -> Path:
+        job = self.jobs / job_id
+        return job if job.exists() else self.jobs / "webui" / job_id
+
     def visible_runs(self):
-        if not self.jobs.is_dir():
-            return
-        for job in self.jobs.iterdir():
+        for job in chain(self.jobs.glob("*"), (self.jobs / "webui").glob("*")):
             if not JOB_ID.fullmatch(job.name) or (job / "queue-cleared").exists():
+                continue
+            if job.parent != self.jobs and self.find_run(job.name) != job:
                 continue
             try:
                 if not (job / "web-status.json").is_file():
@@ -112,7 +152,7 @@ class WorkflowServer(ThreadingHTTPServer):
                 meta = json.loads((job / "web-run.json").read_text(encoding="utf-8"))
                 if not isinstance(meta, dict):
                     continue
-                timestamp = (job / "input.mp4").stat().st_mtime
+                timestamp = (job / "web-run.json").stat().st_mtime
             except (OSError, ValueError):
                 continue
             yield job, timestamp, meta
@@ -135,7 +175,7 @@ class WorkflowServer(ThreadingHTTPServer):
                 "message": status.get("message"),
                 "english_srt_ready": status.get("english_srt_ready", False),
                 "english_segments_ready": status["english_segments_ready"],
-                "final_zip_ready": status["final_zip_ready"],
+                "final_video_ready": status["final_video_ready"],
                 "completed_nodes": status.get("completed_nodes", []),
             })
         return {
@@ -161,12 +201,12 @@ class WorkflowServer(ThreadingHTTPServer):
                 )
             if run.returncode:
                 write_status(job, state="failed", message=cli_failure(job))
-            elif artifact_ready(job, "final_zip"):
-                write_status(job, state="complete", message="发布包已生成。")
+            elif artifact_ready(job, "final_video"):
+                write_status(job, state="complete", message="成片已生成。")
             else:
                 write_status(
                     job, state="blocked",
-                    message="主图已结束，未生成发布包。请检查后端节点及 config/mock.toml。",
+                    message="主图已结束，未生成成片。请检查后端节点及 config/mock.toml。",
                 )
         except subprocess.TimeoutExpired:
             write_status(job, state="failed", message="工作流超过 3 小时，任务已停止。")
@@ -230,7 +270,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content[:LOG_CHUNK_BYTES])
 
-    def send_preview_video(self, video: Path) -> None:
+    def send_video(self, video: Path, *, download: bool = False) -> None:
         if not video.is_file() or not video.stat().st_size:
             self.send_error(404)
             return
@@ -258,6 +298,8 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_response(206 if requested else 200)
             self.send_header("Content-Type", "video/mp4")
             self.send_header("Accept-Ranges", "bytes")
+            if download:
+                self.send_header("Content-Disposition", 'attachment; filename="final.mp4"')
             self.send_header("Content-Length", str(remaining))
             self.send_header("Cache-Control", "private, no-store")
             if requested:
@@ -362,7 +404,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             return
         if not self.local_request():
             return
-        job = self.server.jobs / match[1]
+        job = self.server.find_run(match[1])
         status_file = job / "web-status.json"
         if not status_file.is_file():
             self.send_json({"message": "没有找到该工作流任务。"}, 404)
@@ -371,20 +413,13 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_run_log(job, request.query)
             return
         if match[2] == "preview-video":
-            self.send_preview_video(job / "input.mp4")
+            self.send_video(job / "input.mp4")
             return
-        if match[2] == "final-zip":
-            if not self.server.read_run_status(job)["final_zip_ready"]:
-                self.send_json({"message": "该任务尚无发布包。"}, 404)
+        if match[2] == "final-video":
+            if not self.server.read_run_status(job)["final_video_ready"]:
+                self.send_json({"message": "该任务尚无成片。"}, 404)
                 return
-            with (job / ARTIFACT_SPECS["final_zip"].path).open("rb") as archive:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/zip")
-                self.send_header("Content-Length", str(os.fstat(archive.fileno()).st_size))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Disposition", 'attachment; filename="final.zip"')
-                self.end_headers()
-                shutil.copyfileobj(archive, self.wfile)
+            self.send_video(job / ARTIFACT_SPECS["final_video"].path, download=True)
             return
         if match[3]:
             try:
@@ -435,13 +470,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         job = self.server.jobs / uuid4().hex
         try:
             job.mkdir(parents=True, exist_ok=False)
-            with (job / "input.mp4").open("wb") as output:
-                while size:
-                    chunk = self.rfile.read(min(size, 1024 * 1024))
-                    if not chunk:
-                        raise OSError("Incomplete upload")
-                    output.write(chunk)
-                    size -= len(chunk)
+            save_job_input(self.rfile, size, job)
             filename = unquote(self.headers.get("X-Video-Name", "")[:4096])
             filename = re.split(r"[/\\]", filename)[-1]
             filename = "".join(character for character in filename if character.isprintable())[:180]

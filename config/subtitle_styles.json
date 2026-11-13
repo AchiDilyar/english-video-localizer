@@ -1,33 +1,100 @@
 {
   "default_style": "clean",
   "default_layout": "zh_top",
-  "resolutions": [720, 1080, 2160],
+  "resolutions": [
+    480,
+    720,
+    1080,
+    1440,
+    2160
+  ],
   "layouts": {
-    "zh_only": {"label": "仅译文", "lines": ["zh"]},
-    "zh_top": {"label": "双语 · 译文在上", "lines": ["zh", "en"]},
-    "zh_bottom": {"label": "双语 · 译文在下", "lines": ["en", "zh"]}
+    "zh_only": {
+      "label": "仅译文",
+      "lines": [
+        "zh"
+      ],
+      "margin_y": {
+        "zh": 80
+      },
+      "font": "MiSans Medium"
+    },
+    "zh_top": {
+      "label": "双语 · 译文在上",
+      "lines": [
+        "zh",
+        "en"
+      ],
+      "margin_y": {
+        "zh": 165,
+        "en": 70
+      },
+      "font": "MiSans Medium"
+    },
+    "zh_bottom": {
+      "label": "双语 · 译文在下",
+      "lines": [
+        "en",
+        "zh"
+      ],
+      "margin_y": {
+        "zh": 60,
+        "en": 180
+      },
+      "font": "MiSans"
+    }
   },
   "styles": {
     "clean": {
-      "label": "清晰白字",
-      "zh_size": 48, "en_size": 34,
-      "zh_color": "#ffffff", "en_color": "#e9edf2",
-      "edge_color": "#101010", "outline": 3, "shadow": 0,
-      "margin_x": 100, "margin_y": 65, "box": false, "bold": false
-    },
-    "cinema": {
-      "label": "暖色电影",
-      "zh_size": 50, "en_size": 32,
-      "zh_color": "#ffe7ad", "en_color": "#fff7e5",
-      "edge_color": "#211b17", "outline": 3, "shadow": 2,
-      "margin_x": 110, "margin_y": 82, "box": false, "bold": false
+      "label": "默认样式"
     },
     "contrast": {
       "label": "高对比底框",
-      "zh_size": 52, "en_size": 36,
-      "zh_color": "#ffffff", "en_color": "#f0f4fa",
-      "edge_color": "#10151de0", "outline": 5, "shadow": 0,
-      "margin_x": 112, "margin_y": 60, "box": true, "bold": true
+      "font": "MiSans Medium",
+      "zh_edge": "#10151de0",
+      "en_edge": "#10151de0",
+      "zh_outline": 8,
+      "en_outline": 8,
+      "box": true
+    },
+    "serif": {
+      "label": "宋体细描边",
+      "font": "Songti SC",
+      "zh_edge": "#272018",
+      "en_edge": "#272018",
+      "zh_outline": 4,
+      "en_outline": 3.5
+    },
+    "refined": {
+      "label": "简约精致",
+      "font": "MiSans Demibold",
+      "zh_edge": "#000000",
+      "en_edge": "#000000",
+      "zh_outline": 1,
+      "en_outline": 1,
+      "zh_background": "#000000ef",
+      "en_background": "#000000",
+      "shadow": 6
     }
+  },
+  "geometry": {
+    "width": 3840,
+    "height": 2160,
+    "margin_x": 220,
+    "zh_size": 130,
+    "en_size": 100,
+    "alignment": 2,
+    "wrap_style": 2
+  },
+  "appearance": {
+    "color": "#ffffff",
+    "secondary": "#ffe7ad",
+    "background": "#0000007f",
+    "zh_edge": "#071124",
+    "en_edge": "#000000",
+    "zh_outline": 7,
+    "en_outline": 6.5,
+    "shadow": 0,
+    "box": false
   }
 }

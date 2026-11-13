@@ -14,13 +14,13 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 ## 运行工作流
 
-在「视频输入」节点选择本地 MP4，再点击「运行工作流」。WebUI 把视频保存为 `jobs/webui/<任务 ID>/input.mp4`，然后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。 [CLI 文档](cli/README.md)
+在「视频输入」节点选择本地 MP4，再点击「运行工作流」。WebUI 按视频内容去重，将上传文件保存在 `jobs/.inputs/`。每个任务目录里的 `input.mp4` 是指向同一份数据的硬链接。WebUI 随后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。原有 `jobs/webui/` 下的历史任务仍可在队列中查看。 [CLI 文档](cli/README.md)
 
 每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。现有 CLI 没有逐节点进度事件，因此工作台根据磁盘上的正式产物更新状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
 
-每张节点卡片显示后端配置的运行模式。「模拟」和「真实」分别对应 `config/mock.toml` 中的 `true` 和 `false`。「字幕与封面」对应主图的 `subtitle_cover`。CLI 在运行开始时把同一配置下的节点模式写到终端和任务日志。 右键节点卡片可单独切换模式，聚焦节点标题后也可按 Shift+F10。卡片上的标记显示当前模式。模拟节点的卡片、步骤按钮和导航图使用中性灰。保存会更新本机仓库的共享配置，下次运行生效。工作台检查真实实现和上游模式，并在任务运行时禁用切换。
+每张节点卡片显示后端配置的运行模式。「模拟」和「真实」分别对应 `config/mock.toml` 中的 `true` 和 `false`。「字幕压制准备」对应主图的 `subtitle_cover`。CLI 在运行开始时把同一配置下的节点模式写到终端和任务日志。 右键节点卡片可单独切换模式，聚焦节点标题后也可按 Shift+F10。卡片上的标记显示当前模式。模拟节点的卡片、步骤按钮和导航图使用中性灰。保存会更新本机仓库的共享配置，下次运行生效。工作台检查真实实现和上游模式，并在任务运行时禁用切换。
 
-当前启用的真实节点以本机 `config/mock.toml` 为准。主图退出后，工作台只在 `package/final.zip` 已生成时显示完成和下载入口。主图跑完但没有 ZIP 时，显示「工作流已停止」。接真实节点时由 F 维护节点开关，B/C 的环境、模型和凭据按各自模块文档准备。 [主图文档](graph/README.md) · [B 环境说明](nodes/asr_diarize/environment/README.md)
+当前启用的真实节点以本机 `config/mock.toml` 为准。CLI 成功退出且已生成非空 `video/final.mp4` 时，工作台显示完成，控制台和任务队列都提供 MP4 下载。主图跑完但没有生成成片时，显示「工作流已停止」。「字幕压制准备」以非空的 `subtitles/burnin.ass` 为完成标志。节点同时在该目录生成原文、译文和双语 SRT。接真实节点时由 F 维护节点开关，B/C 的环境、模型和凭据按各自模块文档准备。 [主图文档](graph/README.md) · [B 环境说明](nodes/asr_diarize/environment/README.md)
 
 ## 字幕查看
 
@@ -29,7 +29,7 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 | 阶段 | 读取来源 |
 | --- | --- |
 | 首次分句（历史任务） | 历史任务已保存的 `b/initial.srt` |
-| 断句处理后 | 正式任务的 `segments/segments.json`，历史任务读取已有的英文 SRT |
+| 断句处理后 | `subtitles/english_segmented.srt`、历史任务的英文 SRT，或 `segments/segments.json` |
 | 首次翻译 | 按分段 ID 对齐 `segments/segments.json` 与 `translated/translated_blocks.json` |
 | 反思式终版 | `subtitles/bilingual.srt`，或按分段 ID 合并 `segments/segments.json` 与 `translated/reviewed_blocks.json` |
 
@@ -39,7 +39,7 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 ## 本版可以做什么
 
-- 主图的 11 个节点按预设位置展开。审校结果进入配音和中文编辑，字幕与封面等待审校及中文编辑，合成视频等待配音及字幕与封面。连线默认用一条贝塞尔曲线直接连接源节点的输出端口和目标节点的输入端口，经过其他节点时由卡片遮盖。步骤导航可直接定位节点。
+- 主图的 8 个节点按预设位置展开。视频输入、转写、分块、初译和审校依次执行。审校结果并行进入配音与字幕准备，合成视频等待两条分支完成。连线默认用一条贝塞尔曲线直接连接源节点的输出端口和目标节点的输入端口，经过其他节点时由卡片遮盖。步骤导航可直接定位节点。
 - 鼠标移到连线上，右键添加锚点。拖动圆形锚点调整曲线，再右键该锚点可删除。锚点随项目 JSON 保存，也可撤销或重做。
 - 拖动节点标题移动节点，拖动右下角调整宽高。聚焦尺寸手柄后可用方向键微调。拖动空白可平移画布，滚轮可缩放。
 - 点击顶部「运行」左侧的「任务队列」，从页面右侧打开抽屉。
@@ -59,9 +59,11 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 | `asr_diarize` | 编辑本地 Whisper 模型目录、视频时长上限、音频复识别、Community-1 缓存目录与设备、说话人数量、区分超时和语义复核设置。Community-1 Python 继承当前环境，卡片只读展示该项。 |
 | `build_blocks` | 只读展示正式分块跨度和默认术语表，沿用转写节点已生成的英文分段。 |
 | `translate_blocks`、`review_blocks` | 只读展示同一份 DeepSeek 模型及请求超时。模型由 `DEEPSEEK_MODEL` 环境变量或本地 `.env` 提供。 |
-| `tts_align`、`edit_assets`、`subtitle_cover`、`compose_video`、`collect_manifest`、`package_zip` | 卡片展示主图节点与运行模式，当前主图未提供这些节点的业务配置。 |
+| `subtitle_cover` | 选择默认样式、高对比底框、宋体细描边或简约精致，以及仅译文、双语译文在上或双语译文在下。480p、720p、1080p、1440p、2160p 档位按导出画面高度自动匹配。 |
+| `tts_align` | 卡片展示主图节点与运行模式。 |
+| `compose_video` | 在 `config/compose_video.toml` 中设置输出分辨率与视频码率档位，CLI 和 WebUI 共用。默认沿用源分辨率，并以源视频流平均码率为编码目标。选定分辨率后，ASS 档位随导出画面高度匹配。配音为模拟时使用源视频原声。 |
 
-视频输入和转写卡片的「应用到后端」会校验并写入各自的 `config/*.toml`，供 CLI 和 WebUI 的所有后续真实任务共用。节点模式独立保存到 `config/mock.toml`。工作台执行期间锁定配置写入。直接编辑配置文件后可点卡片的「重新读取」。模型密钥保留在本机 `.env`。
+字幕风格、语言排布和渐入渐出在选择后自动保存到 `config/subtitle_cover.toml`。渐入渐出默认关闭，开启后淡入和淡出各 120 毫秒。手动编辑该文件后，刷新页面即可加载新值。各节点的可编辑配置在选项切换或输入框失焦后自动保存。配置由 CLI 和 WebUI 的后续真实任务共用。节点模式独立保存到 `config/mock.toml`。工作台执行期间锁定配置写入。模型密钥保留在本机 `.env`。
 
 ## 维护与后续接入
 
