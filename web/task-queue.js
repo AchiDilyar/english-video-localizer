@@ -47,9 +47,9 @@ function renderDetail() {
     document.dispatchEvent(new CustomEvent('open-task-log', { detail: job.id }));
   };
   detail.append(open, log);
-  if (job.final_zip_ready) {
-    const download = el('a', '下载发布包');
-    download.href = `/api/workflow-runs/${job.id}/final-zip`;
+  if (job.final_video_ready) {
+    const download = el('a', '下载成片 MP4');
+    download.href = `/api/workflow-runs/${job.id}/final-video`;
     detail.append(download);
   }
 }

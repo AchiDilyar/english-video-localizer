@@ -49,7 +49,7 @@ build-backend = "setuptools.build_meta"
 run-input = "cli:main"
 
 [tool.setuptools]
-py-modules = ["cli"]
+py-modules = ["cli", "subtitle_templates"]
 package-dir = {"" = "project"}
 
 [tool.setuptools.packages.find]

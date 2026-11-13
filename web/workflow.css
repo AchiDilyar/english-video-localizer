@@ -2076,6 +2076,37 @@ body {
 }
 
 .node-fields .param-row input:not([type=checkbox]),
+.subtitle-style-preview {
+  margin: 0;
+}
+
+.subtitle-style-preview figcaption {
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.subtitle-style-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  background: linear-gradient(150deg, #7386a0, #455269 60%, #343d4b);
+  color: #fff;
+  container-type: inline-size;
+  font: 12px/1.22 "Arial Unicode MS", "Noto Sans CJK SC", sans-serif;
+  text-align: center;
+}
+
+.subtitle-style-line {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--subtitle-side, 5%));
+  white-space: nowrap;
+  paint-order: stroke fill;
+}
+
 .node-fields .param-row select {
   height: 24px;
   padding-block: 3px;
@@ -2321,12 +2352,6 @@ body {
 
 #node-mode-menu button[aria-pressed="true"]::after {
   content: "✓";
-}
-
-.node-config-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .node-config-value output {

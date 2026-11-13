@@ -1,0 +1,4 @@
+# 分辨率：source、480p、720p、1080p、1440p、2160p
+# 视频目标码率：source、low、standard、high
+resolution = "source"
+bitrate = "source"

@@ -73,8 +73,11 @@ def main(argv: list[str] | None = None) -> int:
         initial_state = GraphState(input_video=args.input)
         build_graph().invoke(initial_state)
 
-        final_video = artifact_path("final_video")
-        print(f"运行成功，最终产物: {final_video}")
+        final_video = Path(artifact_path("final_video"))
+        if final_video.is_file() and final_video.stat().st_size > 0:
+            print(f"成片已生成: {final_video}")
+        else:
+            print("工作流已结束，未生成成片。")
         return 0
     except Exception as exc:
         logger.exception("运行失败")
