@@ -21,8 +21,8 @@ from contracts import GraphState
 logger = logging.getLogger(__name__)
 
 # 事实源：workflow.md 第 3 节“版本归属”列。当前无增量节点。
-INCREMENTAL_NODE_NAMES: frozenset[str] = frozenset(
-    ["repair_blocks"]
+INCREMENTAL_NODE_NAMES = (
+    "repair_blocks",
 )
 
 

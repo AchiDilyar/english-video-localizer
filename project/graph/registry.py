@@ -40,7 +40,7 @@ def load_node_modes() -> dict[str, str]:
 
 def _validate_incremental_names() -> None:
     """增量节点集合必须是 NODE_NAMES 的子集，防止拼写错误静默失效。"""
-    unknown = INCREMENTAL_NODE_NAMES - set(NODE_NAMES)
+    unknown = set(INCREMENTAL_NODE_NAMES) - set(NODE_NAMES)
     if unknown:
         raise ValueError(
             f"INCREMENTAL_NODE_NAMES contains unknown nodes: {sorted(unknown)}"

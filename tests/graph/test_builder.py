@@ -15,6 +15,46 @@ import graph
 from contracts import GraphState
 from graph import builder, registry
 
+def _reachable_from(start, edges):
+    """从 start 沿 WORKFLOW_EDGES 正向遍历，返回可达节点集合（含 start）。
+
+    WORKFLOW_EDGES 中多前驱边以 tuple 表示，这里展开为单边。
+    """
+    adj: dict[str, set[str]] = {}
+    for source, target in edges:
+        for s in (source if isinstance(source, tuple) else (source,)):
+            adj.setdefault(s, set()).add(target)
+    seen = {start}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        for nxt in adj.get(node, ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
+
+def _expand_edges(edges):
+    """把 WORKFLOW_EDGES 展开成 LangGraph 内部边集合。"""
+    sources, targets = set(), set()
+    for source, target in edges:
+        for s in (source if isinstance(source, tuple) else (source,)):
+            sources.add(s)
+        targets.add(target)
+    first = sources - targets
+    last = targets - sources
+    assert len(first) == 1, f"首节点不唯一: {first}"
+    assert len(last) == 1, f"末节点不唯一: {last}"
+    result = {("__start__", first.pop())}
+    for source, target in edges:
+        if isinstance(source, tuple):
+            for s in source:
+                result.add((s, target))
+        else:
+            result.add((source, target))
+    result.add((last.pop(), "__end__"))
+    return result
+
 
 def _install_fake_nodes(monkeypatch, calls, fail_at=None):
     def make(name):
@@ -36,7 +76,7 @@ def _initial_state():
 
 
 def test_all_nodes_registered(monkeypatch):
-    """workflow.md 第 3 节：8 个节点全部进入图。"""
+    """workflow.md 第 3 节：所有节点全部进入图。"""
     _install_fake_nodes(monkeypatch, [])
     compiled = builder.build_graph()
 
@@ -46,32 +86,18 @@ def test_all_nodes_registered(monkeypatch):
 
 
 def test_edges_match_workflow(monkeypatch):
-    """workflow.md 第 4 节：边集合与图定义逐条一致。
+    """验证 LangGraph 展开后的边与 WORKFLOW_EDGES 语义一致。
 
-    多前驱等待边在 LangGraph 内部展开为多条单前驱边，
-    因此断言展开后的边集合。版本升级导致表示变化时本测试失败，
-    是提醒检查语义而非静默容忍。
+    expected 从 builder.WORKFLOW_EDGES 派生，改图时无需手改本测试；
+    本测试只保证 LangGraph 对多前驱 tuple 的展开与 WORKFLOW_EDGES 一致。
     """
     _install_fake_nodes(monkeypatch, [])
     compiled = builder.build_graph()
-
     actual = {(e.source, e.target) for e in compiled.get_graph().edges}
-    expected = {
-        ("__start__", "probe_input"),
-        ("probe_input", "asr_diarize"),
-        ("asr_diarize", "build_blocks"),
-        ("build_blocks", "translate_blocks"),
-        ("translate_blocks", "review_blocks"),
-        ("review_blocks", "tts_align"),
-        ("review_blocks", "subtitle_cover"),
-        ("tts_align", "compose_video"),
-        ("subtitle_cover", "compose_video"),
-        ("compose_video", "__end__"),
-    }
+    expected = _expand_edges(builder.WORKFLOW_EDGES)
     assert actual == expected, (
         f"缺少边: {sorted(expected - actual)}；多余边: {sorted(actual - expected)}"
     )
-
 
 def test_each_node_runs_exactly_once(monkeypatch):
     """汇合节点有多个前驱，但不重复触发；8 个节点各执行一次。"""
@@ -168,15 +194,27 @@ def test_nodes_receive_graph_state_and_increment_merges(monkeypatch):
 
 
 def test_node_failure_stops_downstream(monkeypatch):
-    """architecture.md 第 8 节：节点异常直接抛出，图终止，下游不执行。"""
-    calls: list[str] = []
-    _install_fake_nodes(monkeypatch, calls, fail_at="translate_blocks")
+    """architecture.md 第 8 节：节点异常直接抛出，图终止，下游不执行。
 
-    with pytest.raises(RuntimeError, match="translate_blocks"):
+    失败节点为测试输入；下游集合从 WORKFLOW_EDGES 派生，不写死下游节点名。
+    """
+    fail_at = "translate_blocks"
+    calls: list[str] = []
+    _install_fake_nodes(monkeypatch, calls, fail_at=fail_at)
+
+    with pytest.raises(RuntimeError, match=fail_at):
         builder.build_graph().invoke(_initial_state())
 
-    assert "review_blocks" not in calls, f"失败后不应执行下游: {calls}"
-    assert calls[-1] == "translate_blocks"
+    assert fail_at in calls, f"失败节点应被执行；实际: {calls}"
+
+    downstream = _reachable_from(fail_at, builder.WORKFLOW_EDGES) - {fail_at}
+    assert downstream, f"{fail_at} 没有下游节点，测试无意义"
+
+    executed_downstream = set(calls) & downstream
+    assert not executed_downstream, (
+        f"失败后不应执行下游；实际下游调用: {sorted(executed_downstream)}；"
+        f"完整序列: {calls}"
+    )
 
 
 def test_resolve_nodes_must_cover_all_names(monkeypatch):

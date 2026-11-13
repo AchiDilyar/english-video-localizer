@@ -77,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         if final_video.is_file() and final_video.stat().st_size > 0:
             print(f"成片已生成: {final_video}")
         else:
+            logger.warning("未生成成片: %s", final_video)
             print("工作流已结束，未生成成片。")
         return 0
     except Exception as exc:
