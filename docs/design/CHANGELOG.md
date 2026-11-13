@@ -215,3 +215,16 @@
 
 ### 修改原因
 - 说明已知的跨平台兼容性问题。
+
+## 2026-11-12 docs(design): 修复设计文档collboration.md文件名拼写
+### 版本变更
+无
+
+### 涉及文档
+- `collaboration.md`
+
+### 修改内容
+- 修正文件名原错误拼写`collboration.md`为`collaboration.md`
+
+### 修改原因
+- 修正错误拼写
