@@ -596,6 +596,9 @@ speech = [
     { name = "torch" },
     { name = "torchaudio" },
 ]
+tts = [
+    { name = "dashscope" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -608,6 +611,7 @@ dev = [
 requires-dist = [
     { name = "av", marker = "extra == 'b-asr'", specifier = ">=16.1,<17" },
     { name = "dashscope", marker = "extra == 'speech'", specifier = ">=2.0.1,<3" },
+    { name = "dashscope", marker = "extra == 'tts'", specifier = ">=2.0.1,<3" },
     { name = "en-core-web-sm", marker = "extra == 'b-asr'", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "faster-whisper", marker = "extra == 'b-asr'", specifier = ">=1.2,<2" },
     { name = "faster-whisper", marker = "extra == 'speech'", specifier = ">=1.2,<2" },
@@ -628,7 +632,7 @@ requires-dist = [
     { name = "yt-dlp", marker = "extra == 'b-asr'", specifier = ">=2026.10.26" },
     { name = "yt-dlp-ejs", marker = "extra == 'b-asr'", specifier = ">=0.8,<1" },
 ]
-provides-extras = ["speech", "b-asr", "b-legacy"]
+provides-extras = ["speech", "b-asr", "b-legacy", "tts"]
 
 [package.metadata.requires-dev]
 dev = [

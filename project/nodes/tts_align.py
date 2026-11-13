@@ -262,8 +262,16 @@ def synthesize_clip(
 ) -> None:
     """调用 DashScope CosyVoice 合成一段中文口播，写成目标规格的 WAV。
 
-    需要环境变量 `DASHSCOPE_API_KEY`（见 `.env.example`）。合成结果先落到
-    `out_path`，采样率/声道/位深由本函数统一转换。
+    使用官方推荐的 v2 SDK 接口 `Client(...).audio.tts.synthesize(...)`；
+    旧版 `dashscope.audio.tts_v2.SpeechSynthesizer` 在 SDK 中已归入 `legacy_1x`。
+
+    环境变量：
+    - `DASHSCOPE_API_KEY`：必需，见 `.env.example`
+    - `DASHSCOPE_WORKSPACE`：业务空间 ID，仅子业务空间或使用专属域名时需要
+    - `DASHSCOPE_REGION`：默认 `cn-beijing`；API Key 与地域绑定，不可跨地域混用
+
+    合成请求要 wav 24kHz 单声道：CosyVoice 原生 24kHz，直接拿无损音频，
+    避免默认 mp3 的编解码损耗；后续仍由 ffmpeg 统一转成目标规格。
     """
     from dotenv import load_dotenv
 
@@ -273,11 +281,19 @@ def synthesize_clip(
         raise RuntimeError("缺少 DASHSCOPE_API_KEY，无法合成中文配音")
 
     import dashscope
-    from dashscope.audio.tts_v2 import SpeechSynthesizer
 
-    dashscope.api_key = api_key
-    synthesizer = SpeechSynthesizer(model=model, voice=voice_id)
-    audio = synthesizer.call(text)
+    client = dashscope.Client(
+        api_key=api_key,
+        workspace=os.getenv("DASHSCOPE_WORKSPACE") or None,
+        region=os.getenv("DASHSCOPE_REGION", "cn-beijing"),
+    )
+    audio = client.audio.tts.synthesize(
+        text,
+        model=model,
+        voice=voice_id,
+        format="wav",
+        sample_rate=sample_rate,
+    )
     if not audio:
         raise RuntimeError(f"CosyVoice 返回空音频（voice={voice_id}）")
 
