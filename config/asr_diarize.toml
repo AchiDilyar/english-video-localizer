@@ -9,11 +9,3 @@ worker_timeout_sec = 7200
 semantic_provider = "none"
 allow_semantic_network = false
 semantic_max_calls = 1
-
-# English cue limits; count spaces and punctuation. Short complete replies are allowed.
-[subtitle]
-target_min_chars = 35
-max_chars = 42
-min_duration_sec = 2.0
-max_duration_sec = 4.0
-max_cps = 20.0

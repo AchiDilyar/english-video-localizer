@@ -95,8 +95,7 @@ def _prepare(state):
 def _recognize_sentence(state):
     from .recognition import recognize_audio
     table=recognize_audio(artifact(state['job_dir'],state['audio_ref']),state['request']['model_dir'],
-                          state['duration_ms'],state['source_meta'],state['request'].get('semantic_review'),
-                          subtitle_options=state['request'].get('subtitle'))
+                          state['duration_ms'],state['source_meta'],state['request'].get('semantic_review'))
     return {'table':table}
 
 

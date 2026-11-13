@@ -30,9 +30,7 @@ class SemanticReviewTests(unittest.TestCase):
         received=[]
         def reviewer(payload):
             received.append(copy.deepcopy(payload));return {'ends':[7,len(words)],'needs_human_review':False}
-        # This test isolates the semantic provider; layout limits are tested separately.
-        rows,review=sentences_from_words(words,self.nlp,reviewer,
-            subtitle_options={'max_chars':500,'max_duration_sec':60})
+        rows,review=sentences_from_words(words,self.nlp,reviewer)
         self.assertEqual(len(rows),2)
         self.assertEqual(' '.join(r['en'] for r in rows),text)
         self.assertEqual((rows[0]['start_ms'],rows[0]['end_ms']),(0,6800))
@@ -101,8 +99,7 @@ class SemanticReviewTests(unittest.TestCase):
         reviewer.calls=1;reviewer.usage=[];reviewer.provider='mock-not-live-deepseek'
         reviewer.return_value={'ends':[7,len(tokens)],'needs_human_review':False}
         state={'job_dir':str(Path(__file__).resolve().parents[4]/'tests/tmp/mock-no-files'),
-               'request':{'model_dir':'not-used','subtitle':{'max_chars':500,'max_duration_sec':60},
-                          'semantic_review':{'provider':'deepseek','allow_network':True,'max_calls':1,
+               'request':{'model_dir':'not-used','semantic_review':{'provider':'deepseek','allow_network':True,'max_calls':1,
                                                                      'model':'test-model','base_url':'https://api.deepseek.com'}},
                'audio_ref':'audio.wav','duration_ms':16000,'source_meta':{}}
         with patch('faster_whisper.WhisperModel',return_value=model),patch('nodes.asr_diarize.pipeline.semantic_review.DeepSeekHTTP',return_value=reviewer):

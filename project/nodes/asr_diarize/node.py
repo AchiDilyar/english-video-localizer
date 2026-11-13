@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nodes.probe_input import integration, media
 from nodes.probe_input.node import inspect_input
-from .pipeline.subtitle_units import SubtitlePolicy
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[3]
@@ -28,7 +27,6 @@ class ASROptions(BaseModel):
     semantic_provider: str = Field(default="none", pattern="^(none|deepseek)$")
     allow_semantic_network: bool = False
     semantic_max_calls: int = Field(default=1, ge=1)
-    subtitle: SubtitlePolicy = Field(default_factory=SubtitlePolicy)
 
 
 def repository_path(value: str) -> Path:
@@ -73,8 +71,7 @@ def recognize(audio: Path, duration_ms: int, options: ASROptions) -> dict:
                          "max_calls": options.semantic_max_calls,
                          "model": client.model, "base_url": client.base_url})
     model_dir = str(repository_path(options.model_dir))
-    table = recognize_audio(audio, model_dir, duration_ms, semantic_config=semantic,
-                            subtitle_options=options.subtitle)
+    table = recognize_audio(audio, model_dir, duration_ms, semantic_config=semantic)
     if options.audio_recheck:
         import spacy
         from faster_whisper import WhisperModel
@@ -83,7 +80,7 @@ def recognize(audio: Path, duration_ms: int, options: ASROptions) -> dict:
         model = WhisperModel(model_dir, device="cpu", compute_type="int8",
                              cpu_threads=4, local_files_only=True)
         table = recheck_table(table, audio, model, spacy.load("en_core_web_sm", disable=["ner"]),
-                              strict_errors=True,subtitle_options=options.subtitle)
+                              strict_errors=True)
     return review_table(table)
 
 
@@ -168,10 +165,4 @@ def asr_diarize(state: GraphState) -> dict:
     integration.write_artifact("segments", segments)
     logger.info("English handoff completed: segments=%d review_items=%d", len(segments),
                 sum(bool(r["review_issues"]) for r in table["sentences"]))
-    from .pipeline.subtitle_units import cue_issues
-    exceptions = [(s.segment_id, cue_issues(s.text_en, s.start_ms, s.end_ms, options.subtitle))
-                  for s in segments]
-    exceptions = [(key, issues) for key, issues in exceptions if issues]
-    if exceptions:
-        logger.warning("Subtitle layout needs review: %s", exceptions)
     return {"segments": segments}

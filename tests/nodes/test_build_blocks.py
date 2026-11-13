@@ -1,7 +1,8 @@
 import pytest
-
 from contracts import GraphState, Segment
 from nodes.build_blocks import build_blocks
+from nodes.translate_blocks._options import load_options
+from pydantic import ValidationError
 from utils import paths
 from utils.io import read_artifact
 
@@ -66,6 +67,33 @@ def test_returns_the_supplied_glossary_for_the_current_task():
     result = build_blocks(GraphState(segments=[segment(1, 0, 1_000)], terminology=glossary))
 
     assert result["terminology"] == glossary
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_configured_terms_override_only_when_enabled(monkeypatch, enabled):
+    glossary = {"sample size": "样本容量", "confidence interval": "置信区间"}
+    monkeypatch.setattr("nodes.translate_blocks._options.load_config", lambda _: {
+        "terminology": {
+            "enabled": enabled, "entries": {"sample size": "样本量", "mix": "混音"},
+        },
+    })
+    state = GraphState(segments=[segment(1, 0, 1_000)], terminology=glossary)
+    result = build_blocks(state)
+    expected = {**glossary, "sample size": "样本量", "mix": "混音"} if enabled else glossary
+    assert result["terminology"] == expected
+    assert state.terminology == glossary
+
+
+@pytest.mark.parametrize(
+    "content",
+    ['style = "unknown"', '[terminology]\nenabled = "true"',
+     '[terminology.entries]\n"mix" = "   "'],
+)
+def test_rejects_invalid_translation_toml(tmp_path, monkeypatch, content):
+    monkeypatch.setattr("utils.config._CONFIG_DIR", tmp_path)
+    (tmp_path / "translate_blocks.toml").write_text(content, encoding="utf-8")
+    with pytest.raises(ValidationError):
+        load_options()
 
 
 @pytest.mark.parametrize("segments", [None, [], [segment(1, 0, 2_000), segment(1, 2_000, 4_000)]])

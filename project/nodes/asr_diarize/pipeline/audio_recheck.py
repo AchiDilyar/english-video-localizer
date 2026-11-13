@@ -22,7 +22,7 @@ def insertion_only(old,new):
     return bool(a) and len(b)>len(a) and len(b)-len(a)<=max(12,len(a)//2) and all(op in ['equal','insert'] for op,*_ in changes)
 
 
-def recheck_table(table,audio_path,model,nlp,only_sentence_ids=None,*,strict_errors=False,subtitle_options=None):
+def recheck_table(table,audio_path,model,nlp,only_sentence_ids=None,*,strict_errors=False):
     started=time.perf_counter();out=copy.deepcopy(table);original=table['sentences'];rows=[];records=[];calls=0;applied=0
     pending=copy.deepcopy(table['review'].get('untimed_utterances',[]))
     with wave.open(str(audio_path),'rb') as audio:
@@ -62,8 +62,7 @@ def recheck_table(table,audio_path,model,nlp,only_sentence_ids=None,*,strict_err
                 elif not hypotheses[0] or min(w['start'] for w in hypotheses[0])*1000<(original[i-1]['end_ms'] if i else 0) or max(w['end'] for w in hypotheses[0])*1000>core_end:
                     record['status']='manual_review_boundary_conflict'
                 else:
-                    replacements,review=sentences_from_words(hypotheses[0],nlp,
-                        subtitle_options=subtitle_options or table['review'].get('subtitle_policy'))
+                    replacements,review=sentences_from_words(hypotheses[0],nlp)
                     if review['untimed_utterances']:raise ValueError('Unresolved zero duration in repair')
                     for j,replacement in enumerate(replacements,1):
                         replacement['sentence_id']=row['sentence_id'] if len(replacements)==1 else row['sentence_id']+f'_r{j:02d}'

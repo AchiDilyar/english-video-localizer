@@ -30,11 +30,6 @@ OUTPUT_FORMAT = (
 )
 
 _MODEL_ITEM_FIELDS = {"segment_id", "zh_subtitle"}
-# The unchanged artifact contract still requires the historical narration field.
-_LEGACY_TEXT_FIELDS = tuple(
-    name for name, field in TranslatedSegment.model_fields.items()
-    if field.is_required() and field.annotation is str and field.description == "中文口播稿"
-)
 
 
 def text_model_env() -> Path:
@@ -76,8 +71,7 @@ def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> li
     for item in items:
         if not isinstance(item, dict) or item.keys() != _MODEL_ITEM_FIELDS:
             raise ValueError(f"{block_id}：模型输出条目格式不正确。")
-        compatible_text = dict.fromkeys(_LEGACY_TEXT_FIELDS, item["zh_subtitle"])
-        translated = TranslatedSegment.model_validate({**compatible_text, **item, "block_id": block_id})
+        translated = TranslatedSegment.model_validate({**item, "block_id": block_id})
         segment_id = translated.segment_id
         if segment_id not in expected or segment_id in by_id:
             raise ValueError(f"{block_id}：模型返回了意外或重复的 ID {segment_id}。")
@@ -88,3 +82,31 @@ def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> li
     if by_id.keys() != expected:
         raise ValueError(f"{block_id}：模型遗漏了分段 {', '.join(sorted(expected - by_id.keys()))}。")
     return [by_id[segment_id] for segment_id in expected_ids]
+
+
+def group_translations(
+    segments: list[Segment] | None,
+    translations: list[TranslatedSegment] | None,
+    stage: str,
+) -> tuple[dict[str, Segment], list[TranslatedSegment], dict[str, list[TranslatedSegment]]]:
+    """Index source segments and group complete translations by block."""
+
+    segments = segments or []
+    by_id = {segment.segment_id: segment for segment in segments}
+    drafts = translations or []
+    if not segments or len(by_id) != len(segments):
+        raise ValueError(f"{stage}需要非空且 ID 唯一的英文分段。")
+    if len(drafts) != len(by_id) or {draft.segment_id for draft in drafts} != by_id.keys():
+        raise ValueError(f"{stage}输入必须包含每个英文分段的唯一译文。")
+
+    grouped: dict[str, list[TranslatedSegment]] = {}
+    for draft in drafts:
+        grouped.setdefault(draft.block_id, []).append(draft)
+    return by_id, drafts, grouped
+
+
+def translation_fields(segment: Segment, translation: TranslatedSegment) -> dict:
+    return {
+        **source_fields(segment),
+        "zh_subtitle": translation.zh_subtitle,
+    }
