@@ -1,6 +1,6 @@
 # 项目数据流设计
 
-版本：v1.5.0
+版本：v1.7.0
 最后更新：2026-11-13
 
 ---
@@ -84,6 +84,7 @@
 | 术语表 | — | 基础版 | 翻译与审校共享的术语映射 | `dict[str, str]` | 不落盘 |
 | 翻译结果 | `translated_blocks` | 基础版 | 翻译智能体输出 | `list[TranslatedSegment]` | `translated/translated_blocks.json` |
 | 审校结果 | `reviewed_blocks` | 基础版 | 审校智能体输出 | `list[TranslatedSegment]` | `translated/reviewed_blocks.json` |
+| 修复结果 | `repaired_blocks` | 增量 | 定向返工后的修复结果 | `list[TranslatedSegment]` | `translated/repaired_blocks.json` |
 | 分段音频清单 | `tts_clips` | 基础版 | 逐段中文口播音频的元数据清单 | `list[TTSClip]` | `tts/clips.json` |
 | 分段音频文件 | `tts_audio` | 基础版 | 逐段中文口播 WAV 音频 | - | `tts/`，文件名由 `TTSClip.audio_path` 提供 |
 | 中文配音音轨 | `dub_audio` | 基础版 | 组装后的整条中文配音 | - | `audio/dub.wav` |
@@ -114,6 +115,7 @@ work_dir/
   translated/
     translated_blocks.json   # 翻译结果，内容模型 list[TranslatedSegment]
     reviewed_blocks.json     # 审校结果，内容模型 list[TranslatedSegment]
+    repaired_blocks.json     # 修复结果，内容模型 list[TranslatedSegment]
   tts/
     clips.json           # 分段音频清单，内容模型 list[TTSClip]
     seg_0001.wav         # 逐段中文口播音频

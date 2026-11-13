@@ -265,3 +265,21 @@
 
 ### 修改原因
 - 接受增量可改拓扑与数据模型后，代理只覆盖执行期异常，不覆盖调度与结构风险；需明确主图结构变更归属，防止死锁、漏执行与基础版被绕过。
+
+## 2026-11-13 docs(design): 新增 repair_blocks 增量节点、repaired_blocks 产物与增量拓扑规则
+
+### 版本变更
+`v1.6.0` -> `v1.7.0`
+
+### 涉及文档
+- `workflow.md`
+- `dataflow.md`
+- `architecture.md`
+
+### 修改内容
+- `workflow.md` 第 3 节节点清单新增增量节点 `repair_blocks`；第 4 节改为 `review_blocks → repair_blocks → tts_align/subtitle_cover` 单通路；第 5 节明确增量节点始终接入、异常不改变基本版行为。
+- `dataflow.md` 第 3 节产物表新增 `repaired_blocks`（`translated/repaired_blocks.json`）；第 4 节工作目录新增该文件；5.3 第 9 条覆盖增量产物与字段兼容规则。
+- `architecture.md` 第 8 节拆分 8.1 基础版、8.2 增量节点异常隔离、8.3 增量数据兼容、8.4 增量节点拓扑与主图结构规则；8.4 明确增量节点始终接入、异常等价于不存在、无条件调度、禁止多前驱写同字段、主图结构变更由 F 执行。
+
+### 修改原因
+- 将 C 的审校问题清单与按片段定向返工作为增量节点接入主图；异常时由代理返回空增量，下游使用原审校结果，基础版行为不变。
