@@ -24,7 +24,8 @@
 | `development.md` | E | 待确认 | `docs/development.md` | 待定 | F不理解该文档的作用，等待进一步说明 | `increments/development-doc.md` |
 | 拆字幕样式 / 封面为独立节点 | E | 待确认 | `workflow.md` / WebUI | 待定 | 需 E 澄清是 UI 分组还是节点变更 | — |
 | 旧版 B → E 文件交接原型 | E | 已移除 | 旧工具和专用联调测试 | 否 | E 的联调采用 CLI 和 WebUI 共用的正式主图 | — |
-| 审校问题清单与按片段定向返工 | C | 待接入 | `project/nodes/review_blocks.py`、`tests/nodes/test_review_blocks.py` | 待定 | 已提供问题清单、退回判断和局部修复函数；当前主图未调用，提请 F 评估保留为独立增量 | [c-targeted-repair.md](c-targeted-repair.md) |
+| 审校问题清单与按片段定向返工 | C | 待接入 | `project/nodes/repair_blocks.py` | 待定 | F 已登记主图位置；真实节点切换及 D/E 修复结果回退待联调 | [c-targeted-repair.md](c-targeted-repair.md) |
+| 翻译风格与术语表增强 | C | 待接入 | `config/translate_blocks.toml`、C 翻译和审校节点 | 待定 | 默认通用风格，术语增强默认关闭 | [c-targeted-repair.md](c-targeted-repair.md) |
 
 **“进主图”取值：**
 - **是**：已接入主图；

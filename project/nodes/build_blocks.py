@@ -5,6 +5,7 @@ from __future__ import annotations
 from contracts import GraphState, TranslationBlock
 from utils.io import write_artifact
 
+from .translate_blocks._options import load_options
 
 MAX_BLOCK_SPAN_MS = 90_000
 DEFAULT_TERMINOLOGY = {"sample size": "样本量"}
@@ -42,5 +43,8 @@ def build_blocks(state: GraphState) -> dict:
         for number, segment_ids in enumerate(groups, start=1)
     ]
     terminology = DEFAULT_TERMINOLOGY if state.terminology is None else state.terminology
+    options = load_options().terminology
+    if options.enabled:
+        terminology = {**terminology, **options.entries}
     write_artifact("blocks", blocks)
     return {"blocks": blocks, "terminology": dict(terminology)}

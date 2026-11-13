@@ -4,6 +4,7 @@ from contracts import GraphState, TranslatedSegment
 from utils.io import write_artifact
 
 from . import _text_model
+from ._options import with_style
 
 TRANSLATE_PROMPT = (
     "将每个英文片段翻译成简体中文，遵循术语表，结合本块上下文理解语义。"
@@ -25,10 +26,11 @@ def translate_blocks(state: GraphState) -> dict:
     if len({block.block_id for block in blocks}) != len(blocks):
         raise ValueError("翻译块 ID 重复。")
 
+    instruction = with_style(TRANSLATE_PROMPT)
     drafts: list[TranslatedSegment] = []
     for block in blocks:
         response = _text_model.request_json(
-            instruction=TRANSLATE_PROMPT,
+            instruction=instruction,
             payload={
                 "terminology": state.terminology or {},
                 "segments": [_text_model.source_fields(by_id[key]) for key in block.segment_ids],

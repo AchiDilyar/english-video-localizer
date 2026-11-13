@@ -1,27 +1,32 @@
-# C 审校问题清单与按片段定向返工
+# C 翻译配置与定向返工
 
-## 当前实现
+## 翻译配置
 
-负责人为 C，实现在 `project/nodes/review_blocks.py`。
+在仓库的 config/translate_blocks.toml 中选择风格。默认是「通用」，另有「音乐行业」「影视」「新闻」「科学与技术」「文化与历史」。初译、审校与返工读取同一份配置，任务运行期间保持配置一致。各种风格都使用同一套中文字幕标点规则。
 
-- `find_review_issues(state)` 逐块对照英文、术语表和当前初稿，返回含 `segment_id`、`reason`、`target` 的 `ReviewIssue` 列表。
-- `should_repair(issues)` 判断问题列表是否非空。循环次数和停止条件由调用方负责。
-- `repair_segments(state, issues)` 执行一轮局部修复，返回完整的 `list[TranslatedSegment]`。只把问题片段送给模型，并按 `target` 更新字幕、口播或两者。其他片段及未指定字段沿用原结果。
+术语表增强默认关闭。开启后，配置术语覆盖同名的任务术语，并保留其他条目。任务未提供术语表时，从内置术语表开始合并。增强后的术语表由分块节点写入 GraphState，后续节点共享。术语来自配置文件，英文词条和中文译法都须为非空字符串。
 
-输入使用现有 `GraphState.segments`、`terminology` 和 `translated_blocks`。这些函数不修改输入状态，不写盘，不新增共享契约字段。完成一轮修复后，调用方可将结果作为下一轮 `translated_blocks` 复审。
+~~~toml
+style = "音乐行业"
 
-## 当前主图关系
+[terminology]
+enabled = true
 
-当前基本版仍使用 `build_blocks → translate_blocks → review_blocks`，由 `review_blocks` 直接产出完整审校译文并调用公共工具写盘。
+[terminology.entries]
+"sample size" = "样本量"
+"audio mastering" = "母带制作"
+~~~
 
-问题清单和定向返工是独立辅助接口，尚未注册到主图。登记状态为“待接入”，请 F 评估是否保留为独立增量。该状态不表示已获准增加主图分支。
+## 定向返工
 
-如果后续需要主图自动返工，先由 F 确认其与 `workflow.md` 基本版边界的关系，再明确适配节点、允许的状态增量、逐段次数上限、复审及未解决问题的出口。涉及共享状态字段时按契约与 `CHANGELOG.md` 流程处理。这三个辅助函数不能直接按标准节点注册。
+- project/nodes/repair_blocks.py 导出 repair_blocks(state: GraphState) -> dict。节点读取 reviewed_blocks、原文分段和术语表，先按块审计，再把有问题的片段交给模型重写一轮。
+- 重写结果会在写盘前按中文字幕规范处理标点。小数、比例、网址和技术名称中的必要符号会保留。处理后为空的译文视为返工失败。
+- 有实际修订时，按审校结果的原顺序写出完整 translated/repaired_blocks.json，并返回 repaired_blocks 状态增量。保持各片段 ID、块 ID 和未命中片段。原审校结果继续供基础版使用。
+- 无审校结果、无问题或重写后译文相同时返回空增量。异常由主图已有的增量代理记录并隔离，下游可继续使用 reviewed_blocks。
+- F 维护 config/mock.toml。当前主图默认使用 repair_blocks 的模拟节点。正式联调需由 F 切换真实节点，D 和 E 优先读取 repaired_blocks，缺失时使用 reviewed_blocks。
 
-## 验证证据
+## 验证
 
-`tests/nodes/test_review_blocks.py` 提供固定响应测试，覆盖无问题时不请求返工、跨块共用术语表、定位术语不一致和漏译的片段及原因、只修改指定口播、保留其他片段，以及拒绝块外 ID。
+uv run --locked --extra b-asr pytest tests/nodes/test_build_blocks.py tests/nodes/test_translate_blocks.py tests/nodes/test_review_blocks.py tests/nodes/test_repair_blocks.py tests/nodes/test_b_c_integration.py -q
 
-从仓库根目录运行 `uv run --locked pytest tests/nodes/test_review_blocks.py -q` 即可复现，不需要模型密钥。
-
-此前真实 DeepSeek 短样本也验证了把“可以继续。”修正为“仅在样本量至少为十二时继续。”，保留该段字幕和另一条片段，复审通过。该结果是独立短样本验证，整片返工仍需 F 决定是否集成。
+测试覆盖术语增强开关、风格及标点复用、命中片段重写、审校产物保留和增量异常后的基础版路径。B/C 样片使用固定模型响应，下游使用模拟节点。

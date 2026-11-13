@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from contracts import GraphState, Segment, TranslatedSegment
+from contracts import GraphState, Segment
 from nodes.build_blocks import build_blocks
 from nodes.review_blocks import review_blocks
 from nodes.translate_blocks import _text_model, translate_blocks
@@ -122,10 +122,8 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
     assert reviewed[1].zh_subtitle == "不要减少样本量。"
     assert state.translated_blocks[0].zh_subtitle == "这种方法有效。"
     for row in [*state.translated_blocks, *reviewed]:
-        fields = row.model_dump()
-        assert fields.keys() == TranslatedSegment.model_fields.keys()
-        assert set(fields[name] for name in fields.keys() - {"block_id", "segment_id"}) == {
-            row.zh_subtitle
+        assert row.model_dump(exclude_none=True) == {
+            "block_id": row.block_id, "segment_id": row.segment_id, "zh_subtitle": row.zh_subtitle,
         }
 
 

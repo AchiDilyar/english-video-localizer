@@ -1,6 +1,6 @@
 import pytest
 from contracts import GraphState, Segment
-from nodes.review_blocks import ReviewIssue, find_review_issues, repair_segments, should_repair
+from nodes.repair_blocks import ReviewIssue, find_review_issues, repair_segments
 from nodes.translate_blocks import _text_model
 
 
@@ -22,7 +22,7 @@ def state():
     return GraphState(
         segments=[first, second],
         terminology={"sample size": "样本量"},
-        translated_blocks=[
+        reviewed_blocks=[
             make_draft(first.segment_id, "blk_0001", "可以继续。"),
             make_draft(second.segment_id, "blk_0002", "记录样本量。"),
         ],
@@ -30,17 +30,16 @@ def state():
 
 
 def test_clean_audit_does_not_request_a_repair(state, monkeypatch):
-    state.translated_blocks[0] = make_draft("seg_0001", "blk_0001", "样本量至少为十二才能继续。")
+    state.reviewed_blocks[0] = make_draft("seg_0001", "blk_0001", "样本量至少为十二才能继续。")
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {"issues": []})
     issues = find_review_issues(state)
     assert issues == []
-    assert should_repair(issues) is False
 
     def unexpected_request(**kwargs):
         pytest.fail("A clean result must not call the model for repair")
 
     monkeypatch.setattr(_text_model, "request_json", unexpected_request)
-    assert repair_segments(state, issues) == state.translated_blocks
+    assert repair_segments(state, issues) == state.reviewed_blocks
 
 
 @pytest.mark.parametrize(
@@ -51,7 +50,7 @@ def test_clean_audit_does_not_request_a_repair(state, monkeypatch):
     ],
 )
 def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, draft_text, reason):
-    state.translated_blocks[0] = make_draft("seg_0001", "blk_0001", draft_text)
+    state.reviewed_blocks[0] = make_draft("seg_0001", "blk_0001", draft_text)
     audited_ids = []
 
     def audit(**request):
@@ -71,7 +70,6 @@ def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, dr
     assert [issue.model_dump() for issue in issues] == [
         {"segment_id": "seg_0001", "reason": reason, "target": "subtitle"}
     ]
-    assert should_repair(issues) is True
 
     def rewrite(**request):
         assert request["payload"]["terminology"] == {"sample size": "样本量"}
@@ -85,15 +83,15 @@ def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, dr
 
     monkeypatch.setattr(_text_model, "request_json", rewrite)
     repaired = repair_segments(state, issues)
-    assert repaired[0].zh_subtitle == "样本量至少为十二才能继续。"
+    assert repaired[0].zh_subtitle == "样本量至少为十二才能继续"
     assert repaired[0].block_id == "blk_0001"
-    assert repaired[1] is state.translated_blocks[1]
-    assert state.translated_blocks[0].zh_subtitle == draft_text
+    assert repaired[1] is state.reviewed_blocks[1]
+    assert state.reviewed_blocks[0].zh_subtitle == draft_text
 
 
 def test_audit_rejects_an_id_outside_its_block(state, monkeypatch):
     monkeypatch.setattr(_text_model, "request_json", lambda **kwargs: {
-        "issues": [{"segment_id": "seg_0002", "reason": "错段", "target": "both"}]
+        "issues": [{"segment_id": "seg_0002", "reason": "错段", "target": "subtitle"}]
     })
     with pytest.raises(ValueError, match="seg_0002"):
         find_review_issues(state)
@@ -104,4 +102,4 @@ def test_repair_rejects_an_unrequested_segment_in_model_output(state, monkeypatc
         "items": [{"segment_id": "seg_0002", "zh_subtitle": "不该更新"}]
     })
     with pytest.raises(ValueError, match="seg_0002"):
-        repair_segments(state, [ReviewIssue(segment_id="seg_0001", reason="漏译", target="dub")])
+        repair_segments(state, [ReviewIssue(segment_id="seg_0001", reason="漏译", target="subtitle")])

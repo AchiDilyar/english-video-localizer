@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "tests/data/asr_diarize/real_dialogue"
 
 
-def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
+@pytest.mark.parametrize("repair_mode", ["mock", "real", "failed"])
+def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch, repair_mode):
     try:
         media.tool_path("ffmpeg")
         media.tool_path("ffprobe")
@@ -33,8 +34,9 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
         work = Path(os.environ["B_C_F_OUTPUT_DIR"]).resolve()
         if not work.is_relative_to((ROOT / "tests/tmp").resolve()):
             raise ValueError("Integration output must stay under tests/tmp")
+        work = work / repair_mode
         work.mkdir(parents=True, exist_ok=False)
-    for folder in ["audio", "segments", "translated"]:
+    for folder in ["audio", "segments", "translated", "subtitles", "tts", "video"]:
         (work / folder).mkdir()
     shutil.copy2(SAMPLE / "input.mp4", work / "input.mp4")
     provenance = json.loads((SAMPLE / "provenance.json").read_text(encoding="utf-8"))
@@ -55,14 +57,25 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
     fixed = json.loads((ROOT / "tests/data/graph/b_c_dialogue/responses.json").read_text(encoding="utf-8"))
     texts = {item["segment_id"]: item["zh_subtitle"] for item in fixed["items"]}
     model_calls = []
+    selected = expected[0].segment_id
+    fixed_text = "修复后的字幕"
 
     def response(**request):
-        ids = [s["segment_id"] for s in request["payload"]["segments"]]
+        rows = request["payload"]["segments"]
+        ids = [s["segment_id"] for s in rows]
         model_calls.append(ids)
+        if "issues" in request.get("output_format", ""):
+            if repair_mode == "failed":
+                raise RuntimeError("simulated repair failure")
+            return {"issues": [{"segment_id": selected, "reason": "漏译", "target": "subtitle"}]}
+        if "issues" in rows[0]:
+            assert ids == [selected]
+            return {"items": [{"segment_id": selected, "zh_subtitle": fixed_text}]}
         return {"items": [{"segment_id": key, "zh_subtitle": texts[key]} for key in ids]}
 
     monkeypatch.setattr(_text_model, "request_json", response)
     flags = {name: name not in registry.NODE_NAMES[:5] for name in registry.NODE_NAMES}
+    flags["repair_blocks"] = repair_mode == "mock"
     monkeypatch.setattr(registry, "load_config", lambda filename: flags)
     monkeypatch.setattr(paths, "_work_dir", None)
     paths.set_work_dir(str(work))
@@ -78,8 +91,15 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch):
     assert len(read_artifact("translated_blocks")) == len(reviewed) == 11
     assert [r.segment_id for r in reviewed] == [s.segment_id for s in source]
     assert all(r.zh_subtitle for r in reviewed)
-    assert len(model_calls) == 2
-    assert not (work / "package/final.zip").exists()
+    assert len(model_calls) == {"mock": 2, "real": 4, "failed": 3}[repair_mode]
+    if repair_mode == "real":
+        repaired = read_artifact("repaired_blocks")
+        assert repaired[0].segment_id == selected
+        assert repaired[0].zh_subtitle == fixed_text
+        assert repaired[1:] == reviewed[1:]
+    else:
+        assert not (work / "translated/repaired_blocks.json").exists()
+    assert (work / "video/final.mp4").is_file()
     if os.environ.get("B_C_F_OUTPUT_DIR"):
         (work / "integration-verification.json").write_text(json.dumps({
             "nodes": called, "segment_count": len(source), "speaker_count": 2,
