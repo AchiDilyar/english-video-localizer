@@ -1,4 +1,12 @@
-"""utils/artifacts.py 的验证：规格表结构与 dataflow.md 一致。"""
+"""utils/artifacts.py 的规格表快照测试。
+
+EXPECTED / JSON_ARTIFACTS / BINARY_ARTIFACTS 是当前已知的基础版产物快照，
+不自动从 dataflow.md 解析。新增、删除或调整基础版产物时，需同步更新
+这里的常量；本测试保证这些已知产物在 ARTIFACT_SPECS 中登记正确，
+且 JSON / 二进制分类与校验类型一致。
+
+ARTIFACT_SPECS 允许包含此处未列出的产物（如增量产物），本测试不要求严格相等。
+"""
 
 from __future__ import annotations
 
@@ -8,7 +16,7 @@ from pydantic import ValidationError
 from utils.artifacts import ARTIFACT_SPECS, ArtifactSpec
 
 
-# dataflow.md §3 登记的全部产物名称
+# 当前已知的基础版产物快照；新增/删除基础版产物时同步更新。
 EXPECTED = {
     "input_video", "source_audio", "segments", "blocks",
     "translated_blocks", "reviewed_blocks",
