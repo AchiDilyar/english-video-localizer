@@ -25,9 +25,8 @@ class AudioRecheckTests(unittest.TestCase):
                 'speaker_id':None,'review_status':'automatic_checks_passed','review_issues':[]}],
                 'review':{'untimed_utterances':[]},'execution':{'transcribe_calls':1}}
 
-    def run_case(self,second=None,start_ms=None,subtitle_options=None):
+    def run_case(self,second=None,start_ms=None):
         table=self.table()
-        if subtitle_options is not None:table['review']['subtitle_policy']=subtitle_options
         if start_ms is not None:table['sentences'][0]['start_ms']=start_ms
         before=copy.deepcopy(table)
         class Model:
@@ -69,12 +68,3 @@ class AudioRecheckTests(unittest.TestCase):
         result=self.run_case(start_ms=1300)
         self.assertEqual(result['sentences'][0]['en'],'We use the computer.')
         self.assertEqual(result['sentences'][0]['start_ms'],1000)
-
-    def test_audio_repair_inherits_subtitle_limits_without_rejoining_long_cue(self):
-        result=self.run_case(subtitle_options={'max_chars':12,'target_min_chars':10})
-        replacements=result['review']['audio_recheck']['records'][0]['replacement_sentence_ids']
-        repaired=[r for r in result['sentences'] if r['sentence_id'] in replacements]
-        self.assertGreater(len(repaired),1)
-        self.assertTrue(all(len(r['en'])<=12 for r in repaired))
-        self.assertEqual(' '.join(r['en'] for r in repaired),'We use the computer.')
-        self.assertEqual((repaired[0]['start_ms'],repaired[-1]['end_ms']),(1000,2900))

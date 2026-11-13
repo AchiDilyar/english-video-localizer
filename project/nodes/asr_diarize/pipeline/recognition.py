@@ -9,7 +9,7 @@ from .sentence_rules import sentences_from_words, sentence_audit, validate_sente
 logger = logging.getLogger(__name__)
 
 
-def recognize_audio(audio_path, model_dir, duration_ms, source_meta=None, semantic_config=None,subtitle_options=None):
+def recognize_audio(audio_path, model_dir, duration_ms, source_meta=None, semantic_config=None):
     from faster_whisper import WhisperModel
     import spacy
     started=time.perf_counter()
@@ -33,7 +33,7 @@ def recognize_audio(audio_path, model_dir, duration_ms, source_meta=None, semant
         reviewer=DeepSeekHTTP(allow_network=semantic['allow_network'],max_calls=semantic['max_calls'])
         if reviewer.model!=semantic.get('model') or reviewer.base_url!=semantic.get('base_url'):
             raise BError('SEMANTIC_CONFIG_CHANGED','Semantic model/endpoint changed; create a new task')
-    sentences,review=sentences_from_words(words,nlp,semantic_reviewer=reviewer,subtitle_options=subtitle_options)
+    sentences,review=sentences_from_words(words,nlp,semantic_reviewer=reviewer)
     # Discard alignment before any durable output/checkpoint update.
     word_count=len(words);del words,stream,model
     table={'schema_version':'b-sentences-2','duration_ms':duration_ms,
@@ -50,22 +50,14 @@ def recognize_audio(audio_path, model_dir, duration_ms, source_meta=None, semant
 
 def review_table(table):
     import spacy
-    from .subtitle_units import SubtitlePolicy,cue_issues
     table=copy.deepcopy(table);nlp=spacy.load('en_core_web_sm',disable=['ner'])
-    policy=SubtitlePolicy.model_validate(table['review'].get('subtitle_policy',{}))
     # Second check uses sentence text only; no original ASR alignment is available here.
     for sentence in table['sentences']:
-        extra=[] if 'subtitle_split_for_readability' in sentence['review_issues'] else sentence_audit(sentence['en'],nlp)
-        sentence['review_issues']=sorted(set(sentence['review_issues']+extra+
-            cue_issues(sentence['en'],sentence['start_ms'],sentence['end_ms'],policy)))
+        extra=sentence_audit(sentence['en'],nlp)
+        sentence['review_issues']=sorted(set(sentence['review_issues']+extra))
         sentence['review_status']='needs_human_review' if sentence['review_issues'] else 'automatic_checks_passed'
     errors=validate_sentence_table(table)
     table['review']['structural_errors']=errors
     table['review']['sentences_needing_human_review']=sum(bool(s['review_issues']) for s in table['sentences'])
-    table['review'].setdefault('subtitle_layout',{}).update({
-        'cue_count':len(table['sentences']),
-        'max_chars':max((len(r['en']) for r in table['sentences']),default=0),
-        'max_duration_ms':max((r['end_ms']-r['start_ms'] for r in table['sentences']),default=0),
-        'high_cps_count':sum('subtitle_reading_speed_high' in r['review_issues'] for r in table['sentences'])})
     table['status']='blocked_validation' if errors else 'ready_for_human_review'
     return table

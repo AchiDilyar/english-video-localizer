@@ -59,7 +59,7 @@ def sentence_audit(text,nlp):
     return issues
 
 
-def sentences_from_words(words,nlp,semantic_reviewer=None,*,subtitle_options=None):
+def sentences_from_words(words,nlp,semantic_reviewer=None):
     if not words:raise BError('WORD_ALIGNMENT_MISSING','Word alignment is required to time complete sentences')
     tokens=[w['word'].strip() for w in words]
     if any(not t for t in tokens):raise BError('WORD_ALIGNMENT_INVALID','Blank aligned word token')
@@ -77,9 +77,6 @@ def sentences_from_words(words,nlp,semantic_reviewer=None,*,subtitle_options=Non
     ranges,decisions=review_ranges(ranges,words,nlp)
     from .semantic_review import refine_ranges
     ranges,semantic_report=refine_ranges(ranges,words,semantic_reviewer,nlp)
-    from .subtitle_units import SubtitlePolicy,fit_subtitle_ranges,cue_issues
-    policy=SubtitlePolicy.model_validate(subtitle_options or {})
-    ranges,subtitle_report=fit_subtitle_ranges(ranges,words,nlp,policy)
     if [i for r in ranges for i in range(r['first'],r['last']+1)]!=list(range(len(words))):
         raise BError('SENTENCE_COVERAGE','Sentence construction omitted or duplicated aligned words')
     expected=re.findall(r"[\w']+",text.lower());actual=re.findall(r"[\w']+",' '.join(r['text'] for r in ranges).lower())
@@ -92,11 +89,11 @@ def sentences_from_words(words,nlp,semantic_reviewer=None,*,subtitle_options=Non
             untimed.append({'en':r['text'],'after_sentence_id':rows[-1]['sentence_id'] if rows else None,
                             'reason':'alignment_has_no_positive_duration; assign final time by listening'})
             continue
-        source_issues=r['subtitle_source_issues'] if 'subtitle_source_issues' in r else sentence_audit(r['text'],nlp)
-        issues=source_issues+r.get('semantic_issues',[])
-        issues+=r.get('subtitle_issues',[])+cue_issues(r['text'],begin,end,policy)
-        if i==1 and any(issue.startswith('possible_') for issue in issues):issues.append('video_start_may_be_partial')
-        if i==len(ranges) and any(issue.startswith('possible_') for issue in issues):issues.append('video_end_may_be_partial')
+        issues=sentence_audit(r['text'],nlp)+r.get('semantic_issues',[])
+        if len(selected)>32:issues.append('subtitle_unit_too_long')
+        if end-begin>10000:issues.append('subtitle_unit_duration_too_long')
+        if i==1 and issues:issues.append('video_start_may_be_partial')
+        if i==len(ranges) and issues:issues.append('video_end_may_be_partial')
         rows.append({'sentence_id':f'sentence_{len(rows)+1:06d}','start_ms':begin,'end_ms':end,
                      'en':r['text'],'speaker_id':None,'review_status':'needs_human_review' if issues else 'automatic_checks_passed',
                      'review_issues':issues})
@@ -105,11 +102,6 @@ def sentences_from_words(words,nlp,semantic_reviewer=None,*,subtitle_options=Non
                  'coverage_word_count':len(words),'spoken_text_sha256':object_hash(tokens),
                  'lexical_coverage_checked':True,'automatic_repairs':decisions,
                  'semantic_review':semantic_report,
-                 'subtitle_policy':policy.model_dump(),
-                 'subtitle_layout':{**subtitle_report,'cue_count':len(rows),
-                     'max_chars':max((len(row['en']) for row in rows),default=0),
-                     'max_duration_ms':max((row['end_ms']-row['start_ms'] for row in rows),default=0),
-                     'high_cps_count':sum('subtitle_reading_speed_high' in row['review_issues'] for row in rows)},
                  'untimed_utterances':untimed,
                  'original_asr_timestamps_persisted':False}
 
