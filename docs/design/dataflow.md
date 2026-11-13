@@ -1,7 +1,7 @@
 # 项目数据流设计
 
-版本：v1.4.0
-最后更新：2026-11-12
+版本：v1.5.0
+最后更新：2026-11-13
 
 ---
 
@@ -29,6 +29,7 @@
 | 工作目录结构 | 第 4 节 工作目录结构 | 任务工作目录下各子目录和文件命名 |
 | 数据流规则 | 第 5 节 数据流规则 | ID 规则、时间轴规则、不可修改字段、路径使用规则等 |
 | 最终产物 | 第 6 节 最终产物说明 | 唯一最终产物是成片`final_video` |
+| 增量产物与字段兼容规则 | 第 5 节 数据流规则 | 增量节点不得覆盖基础版产物；新增产物名须登记；增量新增 GraphState 字段必须可选 |
 
 ### 1.3 文档引用约定
 
@@ -72,23 +73,23 @@
 
 ## 3. 产物表
 
-| 产物 | 名称 | 描述 | 程序内数据结构 | 磁盘路径 |
-| --- | --- | --- | --- | --- |
-| `GraphState` | — | 流程顶层状态容器 | `GraphState` | 不落盘 |
-| 输入视频 | `input_video` | 输入视频文件 | 文件名字符串 | 工作目录根目录下，文件名由 CLI 提供，默认 `input.mp4` |
-| 媒体信息 | — | 输入视频的时长、分辨率、音视频流信息 | `MediaInfo` | 不落盘 |
-| 提取音频 | `source_audio` | 从输入视频提取的英文音轨 | - | `audio/source.wav` |
-| 分段结果 | `segments` | 全片时间轴分段 | `list[Segment]` | `segments/segments.json` |
-| 翻译块 | `blocks` | 翻译与审校的单位 | `list[TranslationBlock]` | `segments/blocks.json` |
-| 术语表 | — | 翻译与审校共享的术语映射 | `dict[str, str]` | 不落盘 |
-| 翻译结果 | `translated_blocks` | 翻译智能体输出 | `list[TranslatedSegment]` | `translated/translated_blocks.json` |
-| 审校结果 | `reviewed_blocks` | 审校智能体输出 | `list[TranslatedSegment]` | `translated/reviewed_blocks.json` |
-| 分段音频清单 | `tts_clips` | 逐段中文口播音频的元数据清单 | `list[TTSClip]` | `tts/clips.json` |
-| 分段音频文件 | `tts_audio` | 逐段中文口播 WAV 音频 | - | `tts/`，文件名由 `TTSClip.audio_path` 提供 |
-| 中文配音音轨 | `dub_audio` | 组装后的整条中文配音 | - | `audio/dub.wav` |
-| 双语 SRT | `bilingual_srt` | 发布用双语字幕 | - | `subtitles/bilingual.srt` |
-| 烧录字幕 | `burnin_subtitle` | 供 FFmpeg 烧录的字幕 | - | `subtitles/burnin.ass` |
-| 成片 | `final_video` | 中文配音成片 | - | `video/final.mp4` |
+| 产物 | 名称 | 版本归属 | 描述 | 程序内数据结构 | 磁盘路径 |
+| --- | --- | --- | --- | --- | --- |
+| `GraphState` | — | 基础版 | 流程顶层状态容器 | `GraphState` | 不落盘 |
+| 输入视频 | `input_video` | 基础版 | 输入视频文件 | 文件名字符串 | 工作目录根目录下，文件名由 CLI 提供，默认 `input.mp4` |
+| 媒体信息 | — | 基础版 | 输入视频的时长、分辨率、音视频流信息 | `MediaInfo` | 不落盘 |
+| 提取音频 | `source_audio` | 基础版 | 从输入视频提取的英文音轨 | - | `audio/source.wav` |
+| 分段结果 | `segments` | 基础版 | 全片时间轴分段 | `list[Segment]` | `segments/segments.json` |
+| 翻译块 | `blocks` | 基础版 | 翻译与审校的单位 | `list[TranslationBlock]` | `segments/blocks.json` |
+| 术语表 | — | 基础版 | 翻译与审校共享的术语映射 | `dict[str, str]` | 不落盘 |
+| 翻译结果 | `translated_blocks` | 基础版 | 翻译智能体输出 | `list[TranslatedSegment]` | `translated/translated_blocks.json` |
+| 审校结果 | `reviewed_blocks` | 基础版 | 审校智能体输出 | `list[TranslatedSegment]` | `translated/reviewed_blocks.json` |
+| 分段音频清单 | `tts_clips` | 基础版 | 逐段中文口播音频的元数据清单 | `list[TTSClip]` | `tts/clips.json` |
+| 分段音频文件 | `tts_audio` | 基础版 | 逐段中文口播 WAV 音频 | - | `tts/`，文件名由 `TTSClip.audio_path` 提供 |
+| 中文配音音轨 | `dub_audio` | 基础版 | 组装后的整条中文配音 | - | `audio/dub.wav` |
+| 双语 SRT | `bilingual_srt` | 基础版 | 发布用双语字幕 | - | `subtitles/bilingual.srt` |
+| 烧录字幕 | `burnin_subtitle` | 基础版 | 供 FFmpeg 烧录的字幕 | - | `subtitles/burnin.ass` |
+| 成片 | `final_video` | 基础版 | 中文配音成片 | - | `video/final.mp4` |
 
 补充说明：
 
@@ -96,6 +97,7 @@
 - “程序内数据结构”为 `-` 的产物不进入 `GraphState`。
 - “分段音频清单”`tts_clips` 是 JSON 元数据清单，“分段音频文件”`tts_audio` 是 `tts/` 下的逐段 WAV 文件；两者通过 `TTSClip.audio_path` 保存的文件名关联。
 - 名称为 `—` 的产物不落盘、不登记名称、不参与产物规格表，仅在 `GraphState` 中传递。
+- “版本归属”取值固定为“基础版 / 增量”。基础版产物供基础版主图使用；增量产物由增量节点新增并须在此登记，增量节点不得覆盖基础版产物名/路径。
 
 ---
 
@@ -165,7 +167,7 @@ utils 提供三类函数：
 2. 对上述对象，节点从 `GraphState` 直接读取结构化对象，**不从磁盘重新读取上游**。
 3. 节点处理完成后，将需要落盘的结构化对象**写入磁盘**，然后**返回 `GraphState` 增量**。
 4. 写磁盘操作应当遵循5.1节的路径使用规则。
-5. 写磁盘失败时直接抛出异常，图终止，State 不合并该节点的增量；不存在“State 已更新但磁盘未写”的中间状态。
+5. 写磁盘失败时 `write_artifact` 直接抛出异常，不存在“State 已更新但磁盘未写”的中间状态。基础版节点不捕获该异常，图终止，State 不合并该节点的增量；增量节点的异常处理按 `architecture.md` 8.2 由 `graph/` 层统一代理捕获，返回空增量，图继续执行。
 6. 磁盘 JSON 是持久化副本和调试依据，不是节点间传递数据的通道；节点间传递以 `GraphState` 中的对象为准。
 7. 媒体信息、术语表不落盘，只在 GraphState 中传递
 8. 二进制媒体产物（音频、视频、字幕）的内容不进入 `GraphState`。
@@ -196,6 +198,11 @@ utils 提供三类函数：
 
 8. **顶层状态模型**
    `GraphState` 是 Pydantic 模型；其字段的必填性、类型与嵌套模型由 `contracts/` 定义。落盘或跨进程传递时，必须以 `GraphState` 模型实例的形式恢复，禁止直接使用反序列化得到的裸 dict。
+
+9. **增量产物与字段兼容规则**
+   - 增量节点不得覆盖基础版产物名/路径；新增产物名必须按第 3 节产物表登记。
+   - 增量节点新增的 `GraphState` 字段必须可选、默认 `None`；字段必填性、类型与语义以 `contracts/` 为准。
+   - 基础版节点不得把增量字段或增量产物作为必需输入；读取时必须处理缺失，缺失时行为与无增量一致。
 
 ### 5.4 路径处理与输入文件约定
 

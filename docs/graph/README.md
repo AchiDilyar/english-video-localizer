@@ -1,6 +1,6 @@
 # F 主图与 B→C 接口联调
 
-2026-11-12。按当前 design v1.4.0 的基本版连接节点，不修改共享 schema、业务节点名或设计文档。
+2026-11-13。按当前 design v1.5.0 的基本版连接节点，不修改共享 schema、业务节点名或设计文档。
 
 ## 主图入口
 
@@ -13,11 +13,13 @@ app = build_graph()
 result = app.invoke(GraphState(input_video="input.mp4"))
 ```
 
-源码导入以 project 为模块根目录。graph 包只公开 build\_graph；registry.py 从 F 的 config/mock.toml 逐节点选择真实/模拟函数，未列出的节点默认真实。不存在节点内部的模拟切换，也不提供第二套命令参数覆盖 mock 配置。**build\_graph() 不接受任何参数；阶段停点、续跑不在基本版范围。**
+源码导入以 project 为模块根目录。graph 包只公开 build\_graph；registry.py 从 F 的 config/mock.toml 逐节点选择真实/模拟函数，未列出的节点默认真实，并按 `graph/incremental.py` 的 `INCREMENTAL_NODE_NAMES` 对增量节点应用异常隔离代理。不存在节点内部的模拟切换，也不提供第二套命令参数覆盖 mock 配置。**build\_graph() 不接受任何参数；阶段停点、续跑不在基本版范围。**
 
-连接顺序：probe\_input → asr\_diarize → build\_blocks → translate\_blocks → review\_blocks。之后 tts\_align 与 subtitle\_cover 并行；compose\_video 等待 tts\_align 与 subtitle\_cover，完成后进入 END。等待边保证汇合节点只执行一次。异常向上传播，不自动重试或切换模型。
+连接顺序：probe\_input → asr\_diarize → build\_blocks → translate\_blocks → review\_blocks。之后 tts\_align 与 subtitle\_cover 并行；compose\_video 等待 tts\_align 与 subtitle\_cover，完成后进入 END。等待边保证汇合节点只执行一次。
 
-当前 mock.toml 由 F 维护：probe\_input、asr\_diarize、build\_blocks、translate\_blocks、review\_blocks 为 false（真实实现）；tts\_align、subtitle\_cover、compose\_video 为 true（模拟实现）。现有 mock 只返回空增量。**主图可构建和模拟流转不等于能产出 final\_video。**
+异常行为按 `workflow.md` 第 3 节“版本归属”列区分：基础版节点异常直接抛出，图终止，CLI 非零退出，不自动重试或切换模型（`architecture.md` 8.1）；增量节点异常由 graph/ 层代理捕获，记录 warning 日志、返回空增量、图继续执行（`architecture.md` 8.2）。代理位于 `graph/incremental.py`，`builder.py` 与 `cli.py` 不感知节点是基础版还是增量。当前 `INCREMENTAL_NODE_NAMES` 为空，8 个节点均为基础版，全部按 8.1 处理；新增增量节点时需同步 `workflow.md`、`NODE_NAMES`、`INCREMENTAL_NODE_NAMES`、`WORKFLOW_EDGES` 与 `mock.toml`。代理只保证异常不外抛并返回空增量，不负责回滚节点内部原地修改或已写磁盘文件。
+
+当前 mock.toml 由 F 维护：probe\_input、asr\_diarize、build\_blocks、translate\_blocks、review\_blocks 为 false（真实实现）；tts\_align、subtitle\_cover、compose\_video 为 true（模拟实现）。
 
 D/E 尚缺的真实节点不在本次实现；将其开关改为 false 而没有实现时，会明确导入失败。
 

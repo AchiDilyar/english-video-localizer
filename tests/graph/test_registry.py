@@ -1,17 +1,21 @@
 """验证 graph.registry.resolve_nodes 的切换规则与配置校验。
 
 对应 architecture.md 4.4（键为节点名、布尔值、未列出默认真实）与 4.5
-（切换只在 registry，节点模块不感知真实/模拟）。
+（切换只在 registry，节点模块不感知真实/模拟）；以及 8.2（增量节点异常
+由 graph/ 层统一代理捕获）。
 
-全部用 fake 模块，不依赖 nodes/* 或 mocks/* 的真实实现。
+全部用 fake 模块，不依赖 nodes/* 或 mocks/* 的真实实现。增量代理用例使用
+测试专用节点名，不把真实基础版节点设为增量节点，也不构建图。
 """
 
 from __future__ import annotations
 
+import logging
 from types import ModuleType
 
 import pytest
 
+import graph.incremental as incremental_mod
 from graph import registry
 
 
@@ -127,3 +131,86 @@ def test_non_callable_fails(monkeypatch):
 
     with pytest.raises(TypeError, match="callable"):
         registry.resolve_nodes()
+
+
+# ---------------------------------------------------------------------------
+# 增量代理：使用测试专用节点名，不把真实基础版节点设为增量节点
+# ---------------------------------------------------------------------------
+
+
+def test_incremental_unknown_node_fails(monkeypatch):
+    """INCREMENTAL_NODE_NAMES 含未知节点时，resolve_nodes 启动即失败。"""
+    monkeypatch.setattr(
+        registry, "INCREMENTAL_NODE_NAMES", frozenset({"unknown_node"})
+    )
+
+    with pytest.raises(ValueError, match="unknown_node"):
+        registry.resolve_nodes()
+
+
+def test_resolve_nodes_applies_incremental_proxy(monkeypatch, caplog):
+    """resolve_nodes 对 INCREMENTAL_NODE_NAMES 中的节点应用代理。
+
+    仅验证代理包装，不构建图，不涉及 8.2 第 4 条“增量节点不得成为基础版
+    节点必需前置”的图接入约束。
+    """
+    extended = registry.NODE_NAMES + ("incremental_probe",)
+    incremental = frozenset({"incremental_probe"})
+    monkeypatch.setattr(registry, "NODE_NAMES", extended)
+    monkeypatch.setattr(registry, "INCREMENTAL_NODE_NAMES", incremental)
+    monkeypatch.setattr(incremental_mod, "INCREMENTAL_NODE_NAMES", incremental)
+
+    def importer(full_name):
+        short = full_name.rsplit(".", 1)[-1]
+        module = ModuleType(full_name)
+
+        if short == "incremental_probe":
+            def execute(state):
+                raise RuntimeError("boom")
+        else:
+            def execute(state):
+                return {}
+
+        setattr(module, short, execute)
+        return module
+
+    monkeypatch.setattr(registry, "load_config", lambda _: {})
+    monkeypatch.setattr(registry, "import_module", importer)
+
+    nodes = registry.resolve_nodes()
+
+    with caplog.at_level(logging.WARNING):
+        result = nodes["incremental_probe"](None)
+
+    assert result == {}
+    assert any(
+        r.levelno == logging.WARNING and "incremental_probe" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_resolve_nodes_does_not_proxy_base_nodes(monkeypatch):
+    """非增量节点不被代理，异常继续向上抛出。"""
+    extended = registry.NODE_NAMES + ("incremental_probe",)
+    incremental = frozenset({"incremental_probe"})
+    monkeypatch.setattr(registry, "NODE_NAMES", extended)
+    monkeypatch.setattr(registry, "INCREMENTAL_NODE_NAMES", incremental)
+    monkeypatch.setattr(incremental_mod, "INCREMENTAL_NODE_NAMES", incremental)
+
+    def importer(full_name):
+        short = full_name.rsplit(".", 1)[-1]
+        module = ModuleType(full_name)
+
+        def execute(state, _short=short):
+            raise RuntimeError(f"{_short} boom")
+
+        setattr(module, short, execute)
+        return module
+
+    monkeypatch.setattr(registry, "load_config", lambda _: {})
+    monkeypatch.setattr(registry, "import_module", importer)
+
+    nodes = registry.resolve_nodes()
+
+    with pytest.raises(RuntimeError, match="asr_diarize"):
+        nodes["asr_diarize"](None)
