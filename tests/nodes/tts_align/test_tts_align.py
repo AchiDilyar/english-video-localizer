@@ -35,9 +35,18 @@ WORK_SUBDIRS = (
 )
 SAMPLE_RATE = 24000
 
+def _ffmpeg_available() -> bool:
+    """与节点一致地判断 ffmpeg 是否可用（architecture.md 第 11 节）。"""
+    try:
+        tts_align.resolve_ffmpeg()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 requires_ffmpeg = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None and not os.getenv("LOCALIZER_FFMPEG"),
-    reason="需要 ffmpeg：加入 PATH 或设置 LOCALIZER_FFMPEG",
+    not _ffmpeg_available(),
+    reason="需要 ffmpeg：放到仓库根 .tools/ffmpeg/bin/ffmpeg.exe 或加入 PATH",
 )
 
 
@@ -172,6 +181,39 @@ def test_shipped_config_is_usable():
     assert plan.model
     assert len(plan.voice_pool) >= 2
     assert plan.sample_rate > 0
+
+
+# ---------------------------------------------------------------------------
+# FFmpeg 查找（architecture.md 第 11 节）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(os.name != "nt", reason=".tools 分支仅 Windows 生效")
+def test_resolve_ffmpeg_prefers_project_tools(monkeypatch, tmp_path):
+    fake = tmp_path / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    fake.parent.mkdir(parents=True)
+    fake.write_bytes(b"stub")
+    monkeypatch.setattr(tts_align, "_REPO_ROOT", tmp_path)
+
+    assert tts_align.resolve_ffmpeg() == str(fake)
+
+
+@requires_ffmpeg
+def test_resolve_ffmpeg_falls_back_to_path(monkeypatch, tmp_path):
+    # 空的仓库根，没有 .tools，只能落到 PATH
+    monkeypatch.setattr(tts_align, "_REPO_ROOT", tmp_path)
+
+    resolved = tts_align.resolve_ffmpeg()
+
+    assert Path(resolved).name.lower() in {"ffmpeg", "ffmpeg.exe"}
+
+
+def test_resolve_ffmpeg_raises_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(tts_align, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(tts_align.shutil, "which", lambda _name: None)
+
+    with pytest.raises(FileNotFoundError):
+        tts_align.resolve_ffmpeg()
 
 
 # ---------------------------------------------------------------------------

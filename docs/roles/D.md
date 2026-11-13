@@ -21,5 +21,6 @@
 
 | 日期 | 完成事项 | 证据或文件 | 阻塞与下一步 |
 |---|---|---|---|
+| 2026-11-13 | 按 `architecture.md` v1.4.1 第 11 节重写 `resolve_ffmpeg()`：改为「仓库 `.tools/ffmpeg/bin/ffmpeg.exe`（仅 Windows）→ 系统 `PATH`」，两处都缺时抛 `FileNotFoundError`；移除原先自有的 `LOCALIZER_FFMPEG` 分支，与 `mocks/compose_video.py` 保持一致；新增 3 项查找顺序用例；23 项测试通过 | `project/nodes/tts_align.py`、`tests/nodes/tts_align/`、`docs/nodes/tts_align/README.md` | 若 F 后续在 `utils/` 提供共享查找函数，本节点应改为调用共享函数，不再各自实现（§11 明文要求） |
 | 2026-11-12 | 按 C 的交付变更改用 `zh_subtitle`：合成文本与 `TTSClip.text` 全部取自 `zh_subtitle`，代码中不再引用 `zh_dub`；用例默认不提供 `zh_dub`，另有一条把它填成不同内容，证明它确实未被使用；20 项测试通过，`ruff check` 通过 | `project/nodes/tts_align.py`、`tests/nodes/tts_align/` | 契约已将 `zh_dub` 改为选填并标注弃用；本模块不依赖它，后续删除该字段也无需再改 |
 | 2026-11-12 | 完成 `tts_align` 节点：音色映射配置化（音色池 + 手工覆盖）、时长检测与 1.15 倍变速对齐、按时间轴组装 `dub.wav`；18 项测试通过，`ruff check` 通过 | `project/nodes/tts_align.py`、`config/tts.toml`、`tests/nodes/tts_align/`、`docs/nodes/tts_align/README.md` | ① 待配 `DASHSCOPE_API_KEY` 做真实 TTS 双人验证；② `dub.wav` 采样率 24000Hz 单声道待与 E 的 `compose_video` 对齐；③ `spk_unknown` 是否为合法 `speaker_id` 待与 F、B 确认（本节点已按允许实现，不依赖该结论） |

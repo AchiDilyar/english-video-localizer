@@ -59,15 +59,24 @@ B 的长视频验证出现过"14 个模型声音组不等于人工确认的 14 �
 
 节点**不创建任何目录**（`dataflow.md` 第 4 节），`tts/`、`audio/` 由 CLI 初始化时创建。节点只在系统临时目录放合成中转文件，返回前清理。
 
+## 外部工具
+
+FFmpeg 按 `architecture.md` 第 11 节查找，与 `mocks/compose_video.py` 保持一致：
+
+1. 仓库根 `.tools/ffmpeg/bin/ffmpeg.exe`（该分支仅 Windows 有效）；
+2. 系统 `PATH`。
+
+两处都找不到时抛 `FileNotFoundError`，按节点失败处理，不静默降级。
+
 ## 测试
 
 ```bash
 uv run --locked pytest tests/nodes/tts_align
 ```
 
-18 项，覆盖音色映射（首次出现顺序、同一说话人一致、`spk_unknown` 兜底、override 优先、音色池复用、非法配置）、时长对齐（补静音、无需变速、超时裁剪、零时间窗）、节点整体行为（三个产物落盘、`clips.json` 通过契约校验、`dub.wav` 首段之前为静音、空输入返回空增量、缺 `segments` 与错位 `segment_id` 抛异常）。
+23 项，覆盖音色映射（首次出现顺序、同一说话人一致、`spk_unknown` 兜底、override 优先、音色池复用、非法配置）、FFmpeg 查找（`.tools` 优先、回退 `PATH`、都缺失时抛异常）、时长对齐（补静音、无需变速、超时裁剪、零时间窗）、节点整体行为（三个产物落盘、`clips.json` 通过契约校验、`dub.wav` 首段之前为静音、只用 `zh_subtitle`、空输入返回空增量、缺 `segments` 与错位 `segment_id` 抛异常）。
 
-测试用假合成器替代真实 TTS，**不需要 `DASHSCOPE_API_KEY`**；需要 `ffmpeg`（加入 PATH 或设置 `LOCALIZER_FFMPEG`），缺失时自动跳过依赖 ffmpeg 的用例。
+测试用假合成器替代真实 TTS，**不需要 `DASHSCOPE_API_KEY`**；需要 `ffmpeg`（放到 `.tools/ffmpeg/bin/` 或加入 `PATH`），缺失时自动跳过依赖 ffmpeg 的用例。
 
 ## 接入真实 TTS
 

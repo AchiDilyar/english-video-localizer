@@ -28,6 +28,9 @@ from utils.paths import artifact_path
 
 logger = logging.getLogger(__name__)
 
+# project/nodes/tts_align.py -> project -> 仓库根
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 CONFIG_FILE = "tts.toml"
 DEFAULT_MODEL = "cosyvoice-v3-flash"
 DEFAULT_VOICE = "longanyang"
@@ -126,15 +129,23 @@ def assign_voices(plan: VoicePlan, speaker_order: list[str]) -> dict[str, str]:
 
 
 def resolve_ffmpeg() -> str:
-    """按 `LOCALIZER_FFMPEG` > PATH 的顺序定位 ffmpeg。"""
-    configured = os.getenv("LOCALIZER_FFMPEG")
-    if configured:
-        return configured
+    """按 `architecture.md` 第 11 节定位 ffmpeg。
+
+    查找顺序：
+    1. 仓库根 `.tools/ffmpeg/bin/ffmpeg.exe`（该分支仅 Windows 有效）；
+    2. 系统 `PATH`。
+
+    两处都找不到时抛出 `FileNotFoundError`，按节点失败处理，不静默降级。
+    """
+    if os.name == "nt":
+        candidate = _REPO_ROOT / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
+        if candidate.is_file():
+            return str(candidate)
     found = shutil.which("ffmpeg")
     if found:
         return found
-    raise RuntimeError(
-        "找不到 ffmpeg：请把它加入 PATH，或设置 LOCALIZER_FFMPEG 指向可执行文件"
+    raise FileNotFoundError(
+        "tts_align: 未找到 FFmpeg；请放到仓库根 .tools/ffmpeg/bin/ffmpeg.exe 或加入 PATH"
     )
 
 
