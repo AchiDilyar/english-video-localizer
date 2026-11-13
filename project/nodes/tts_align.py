@@ -262,8 +262,12 @@ def synthesize_clip(
 ) -> None:
     """调用 DashScope CosyVoice 合成一段中文口播，写成目标规格的 WAV。
 
-    需要环境变量 `DASHSCOPE_API_KEY`（见 `.env.example`）。合成结果先落到
-    `out_path`，采样率/声道/位深由本函数统一转换。
+    需要环境变量 `DASHSCOPE_API_KEY`（见 `.env.example`）；若账号需要工作空间，
+    另配 `DASHSCOPE_WORKSPACE`。
+
+    合成请求固定要 `WAV_24000HZ_MONO_16BIT`：CosyVoice 原生 24kHz，直接拿无损 WAV，
+    避免默认 mp3 的编解码损耗。若所用模型不支持该输出格式，改成
+    `AudioFormat.MP3_24000HZ_MONO_256KBPS` 即可，后续 ffmpeg 会统一转码。
     """
     from dotenv import load_dotenv
 
@@ -273,10 +277,15 @@ def synthesize_clip(
         raise RuntimeError("缺少 DASHSCOPE_API_KEY，无法合成中文配音")
 
     import dashscope
-    from dashscope.audio.tts_v2 import SpeechSynthesizer
+    from dashscope.audio.tts_v2 import AudioFormat, SpeechSynthesizer
 
     dashscope.api_key = api_key
-    synthesizer = SpeechSynthesizer(model=model, voice=voice_id)
+    synthesizer = SpeechSynthesizer(
+        model=model,
+        voice=voice_id,
+        format=AudioFormat.WAV_24000HZ_MONO_16BIT,
+        workspace=os.getenv("DASHSCOPE_WORKSPACE") or None,
+    )
     audio = synthesizer.call(text)
     if not audio:
         raise RuntimeError(f"CosyVoice 返回空音频（voice={voice_id}）")
