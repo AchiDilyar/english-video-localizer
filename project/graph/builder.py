@@ -10,8 +10,9 @@ WORKFLOW_EDGES = (
     ("asr_diarize", "build_blocks"),
     ("build_blocks", "translate_blocks"),
     ("translate_blocks", "review_blocks"),
-    ("review_blocks", "tts_align"),
-    ("review_blocks", "subtitle_cover"),
+    ("review_blocks", "repair_blocks"),
+    ("repair_blocks", "tts_align"),
+    ("repair_blocks", "subtitle_cover"),
     (("tts_align", "subtitle_cover"), "compose_video"),
 )
 

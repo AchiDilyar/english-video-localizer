@@ -16,6 +16,7 @@ NODE_NAMES = (
     "build_blocks",
     "translate_blocks",
     "review_blocks",
+    "repair_blocks",
     "tts_align",
     "subtitle_cover",
     "compose_video",

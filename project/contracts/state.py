@@ -27,4 +27,5 @@ class GraphState(BaseModel):
     terminology: dict[str, str] | None = None
     translated_blocks: list[TranslatedSegment] | None = None
     reviewed_blocks: list[TranslatedSegment] | None = None
+    repaired_blocks: list[TranslatedSegment] | None = None
     tts_clips: list[TTSClip] | None = None

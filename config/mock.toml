@@ -6,6 +6,7 @@ asr_diarize = false
 build_blocks = false
 translate_blocks = false
 review_blocks = false
+repair_blocks = true
 tts_align = true
 subtitle_cover = true
 compose_video = true

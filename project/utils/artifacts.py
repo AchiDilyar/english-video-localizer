@@ -55,6 +55,11 @@ ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         path_kind="fixed",
         type_=list[TranslatedSegment],
     ),
+    "repaired_blocks": ArtifactSpec(
+        path="translated/repaired_blocks.json",
+        path_kind="fixed",
+        type_=list[TranslatedSegment]
+    ),
     "tts_clips": ArtifactSpec(
         path="tts/clips.json", path_kind="fixed", type_=list[TTSClip]
     ),

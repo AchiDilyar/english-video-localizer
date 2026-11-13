@@ -103,4 +103,5 @@ LangGraph 顶层状态。
 | `terminology` | `UnionType[dict[str, str], None]` | 否 | — |
 | `translated_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `reviewed_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
+| `repaired_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `tts_clips` | `UnionType[list[TTSClip], None]` | 否 | — |
