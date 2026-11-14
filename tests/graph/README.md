@@ -16,10 +16,13 @@ uv run pytest tests/graph
 | `test_incremental.py` | `graph.incremental` 的代理行为：正常透传、`Exception` 吞掉并记录带栈 `warning`、`BaseException` 继续上抛、只包装增量集合内节点、空集合保持函数同一性、元数据保留、`OSError` 模拟写盘失败仍返回空增量；图级别测试通过 patch 常量走真实 `build_graph()`，验证增量节点异常时基础版链与 `compose_video` 继续执行、增量正常返回时合并进 State |
 | `test_builder.py` | `graph.build_graph` 的拓扑与执行语义：`NODE_NAMES` 中的全部节点注册；边集合由 `WORKFLOW_EDGES` 派生并与 LangGraph 展开一致；线性前缀顺序；`subtitle_cover` 等待 `review_blocks`；`compose_video` 等待 `tts_align` 与 `subtitle_cover`；`compose_video` 为最后执行的业务节点，完成后进入 `END`；每个节点执行一次；节点入参为 `GraphState` 且增量合并进 State；节点失败后下游不执行（下游集合由 `WORKFLOW_EDGES` 派生）；`resolve_nodes` 缺节点或含多余节点时 `build_graph` 拒绝 |
 | `test_builder_integration.py` | 不 monkeypatch，真实走 `resolve_nodes → import_module(mocks.*) → StateGraph` 编译链路，验证当前 `mock.toml` 配置下 `NODE_NAMES` 中的全部节点进入图 |
+| `test_node_contracts.py` | 基础版节点与主图的接口契约：基础版节点主函数签名只接受一个参数；基础版节点中直接调用的 `write_artifact` / `artifact_path` / `read_artifact` 的第一个参数若为字符串字面量，必须在 `ARTIFACT_SPECS` 中；非字面量参数以 `UserWarning` 输出，供人工检查；`GraphState` 可只传 `input_video` 构造；`input_video` 可选、默认 `None`、可为 `str`。不检查 Pydantic 校验是否通过、产物类型是否匹配、已登记产物名的语义；别名导入与 `getattr` 动态调用不在静态检查范围 |
 
 `test_registry.py` 与 `test_builder.py` 只在 `load_config`、`import_module`、`resolve_nodes` 三个边界注入，**不导入任何 `nodes/*` 或 `mocks/*` 真实模块**，也不依赖 `tests/data/` 下任何样例。`test_builder_integration.py` 依赖 `mocks/*` 存在且导出同名主函数，那是 `architecture.md` 4.3 的 graph 契约。
 
 `test_incremental.py` 的单元测试直接调用 `graph.incremental`，不依赖真实节点；图级别测试通过 fixture 集中 patch `registry.NODE_NAMES`、`builder.NODE_NAMES`、`builder.WORKFLOW_EDGES`、`registry.INCREMENTAL_NODE_NAMES`、`graph.incremental.INCREMENTAL_NODE_NAMES`，并 mock `registry.load_config` 与 `registry.import_module`，**不修改 `builder.py`**，不影响现有基础版节点。
+
+`test_node_contracts.py` 的签名检查会 `import` 真实节点；产物名检查只读源码、不 `import` 节点，不依赖 API key 与 FFmpeg。
 
 ## 失败排查
 
@@ -43,6 +46,16 @@ uv run pytest tests/graph
     
 +   **`test_builder_integration.py` 失败**：说明当前 `mock.toml` 与 `mocks/` 现状不能支撑编译。先跑 `uv run pytest tests/graph/test_registry.py` 定位是切换问题还是导入问题。
     
++   **`test_node_contracts.py::test_base_node_signature` 失败**：节点主函数参数个数不是 1；也可能是 `import nodes.<name>` 时加载模型/配置失败。先确认签名，再确认该节点在基础环境可导入。
+    
++   **`test_node_contracts.py::test_base_node_artifact_names_registered` 失败**：基础版节点直接调用了未登记的产物名；去 `utils/artifacts.py` 的 `ARTIFACT_SPECS` 核对，或按产物登记流程补登记。
+    
++   **`test_node_contracts.py` 出现 `UserWarning`**：基础版节点中 `write_artifact` / `artifact_path` / `read_artifact` 的参数不是字符串字面量，静态检查无法判断，需要人工确认该参数值已登记。警告在 `warnings summary` 中显示，即使测试全部通过也能看到。
+    
++   **`test_graph_state_constructible_with_only_input_video` 失败**：`contracts/` 新增了必填字段，`cli.py` 的 `GraphState(input_video=...)` 构造会失败；需与 `contracts/` 修改者协商，新增字段应可选、默认 `None`。
+    
++   **`test_input_video_field_type_and_default` 失败**：`input_video` 的默认值或类型被改，`cli.py` 依赖文件名语义；需与 `contracts/` 修改者协商。
+    
 
 ## 边界说明
 
@@ -59,6 +72,12 @@ uv run pytest tests/graph
 +   **当前增量集合**：`graph.incremental.INCREMENTAL_NODE_NAMES` 当前为 `("repair_blocks",)`，`repair_blocks` 经过代理包装；其余基础版节点不经过代理。后续新增增量节点时，需同步 `workflow.md` 第 3 节版本归属列、`NODE_NAMES`、`INCREMENTAL_NODE_NAMES`、`WORKFLOW_EDGES` 和 `mock.toml`。
     
 +   **增量集合类型**：`INCREMENTAL_NODE_NAMES` 为 tuple；测试中 patch 为 `frozenset`，`in` 与 `set()` 运算对两者兼容，不影响断言。
+    
++   **`test_node_contracts.py` 的产物名检查边界**：只识别直接调用 `write_artifact` / `artifact_path` / `read_artifact`；`from utils.io import write_artifact as wa` 别名导入、`getattr(utils.io, "write_artifact")` 动态调用不覆盖，靠运行时 `KeyError` 与人工审查兜底。非字面量参数（变量、f-string）以 `UserWarning` 输出，不失败。不检查 Pydantic 校验是否通过、产物类型是否匹配、已登记产物名的语义（如基础版节点写增量产物名）。
+    
++   **`test_node_contracts.py` 的签名检查边界**：只检查参数个数，不检查参数名是否为 `state`、不检查返回注解、不调用节点。签名检查会 `import` 真实节点，节点 import 时的副作用可能导致测试失败。
+    
++   **`test_node_contracts.py` 的 `GraphState` 检查边界**：只检查 `cli.py` 的初始构造（只传 `input_video`）、`input_video` 字段默认值与类型；不检查 `contracts/` 下其他模型、不检查 `dataflow.md`。
     
 
 B/C 联调测试已移至 `tests/nodes/`，由 B/C 维护，不在本目录，也不属于 graph 模块测试范围。graph 测试不校验业务产物、不读写 `tests/data/`、不涉及 `tests/tmp/`。
