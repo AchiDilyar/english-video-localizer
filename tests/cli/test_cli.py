@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 import subprocess
@@ -184,11 +185,18 @@ def test_run_input_command_default_input(work_dir):
     临时目录无 input.mp4，命令应在启动前检查阶段失败，不触发 build_graph，
     因此不联调任何节点。
     """
+    # Windows 默认按 locale（cp936/GBK）解码子进程输出，而 uv 与 Python 子进程
+    # 可能写出 UTF-8 字节，导致 reader 线程抛 UnicodeDecodeError、stderr 变成 None。
+    # 显式指定 UTF-8 并强制子进程以 UTF-8 输出，errors="replace" 兜底防止线程再死。
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     result = subprocess.run(
         ["uv", "run", "run-input", "--work-dir", str(work_dir)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
         timeout=180,
     )
     assert result.returncode != 0
