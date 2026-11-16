@@ -68,6 +68,7 @@ english-video-localizer/
       CHANGELOG.md
     contracts/      # interfaces.md，从 Pydantic 自动生成
     nodes/          # 各节点模块的补充文档，子目录以节点名命名
+    mocks/          # mocks模块的补充文档
     graph/          # 图构建模块的补充文档
     cli/            # CLI 模块的补充文档
     utils/          # utils 模块的补充文档

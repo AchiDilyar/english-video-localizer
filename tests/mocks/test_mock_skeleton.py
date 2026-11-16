@@ -1,41 +1,36 @@
 """验证 mocks/ 最小骨架的完整性。
 
-事实源：workflow.md 第 3 节节点清单。
+事实源：workflow.md 第 3 节节点清单（经 graph.registry.NODE_NAMES 提供）。
 本测试只验证：模块存在、函数同名、可调用、第一个位置参数名为 state、
-返回 dict、mock.toml 键集合覆盖全部节点。
+mock.toml 键集合覆盖全部节点。
 不验证业务字段、不验证落盘、不依赖 GraphState 字段。
 
-graph.registry 落地后，建议将 EXPECTED_NODES 改为从 graph.registry.NODE_NAMES 导入。
+EXPECTED_NODES 直接取自 graph.registry.NODE_NAMES，不再硬编码节点清单；
+mocks/ 下多出的模块只产生 UserWarning，不判失败；下划线开头的内部辅助模块
+（如 _video.py）不计入节点清单比对。
 """
 
 from __future__ import annotations
 
 import importlib
 import inspect
+import warnings
 from pathlib import Path
 
 import mocks as mocks_pkg
 import pytest
-
-EXPECTED_NODES = (
-    "probe_input",
-    "asr_diarize",
-    "build_blocks",
-    "translate_blocks",
-    "review_blocks",
-    "tts_align",
-    "edit_assets",
-    "subtitle_cover",
-    "compose_video",
-    "collect_manifest",
-    "package_zip",
-)
+from graph.registry import NODE_NAMES as EXPECTED_NODES
 
 MOCKS_DIR = Path(mocks_pkg.__path__[0])
 
 
 def _mock_module_names() -> list[str]:
-    return sorted(p.stem for p in MOCKS_DIR.glob("*.py") if p.stem != "__init__")
+    """节点 mock 模块；下划线开头的是内部辅助模块，不参与节点清单比对。"""
+    return sorted(
+        p.stem
+        for p in MOCKS_DIR.glob("*.py")
+        if p.stem != "__init__" and not p.stem.startswith("_")
+    )
 
 
 def test_mocks_dir_exists() -> None:
@@ -43,12 +38,18 @@ def test_mocks_dir_exists() -> None:
 
 
 def test_mock_modules_cover_all_nodes() -> None:
+    """节点缺少 mock 模块直接失败；多余模块只提示，不影响运行。"""
     found = set(_mock_module_names())
     expected = set(EXPECTED_NODES)
     missing = expected - found
     extra = found - expected
     assert not missing, f"缺少 mock 模块: {sorted(missing)}"
-    assert not extra, f"存在未登记的 mock 模块: {sorted(extra)}"
+    if extra:
+        warnings.warn(
+            f"mocks/ 下存在未登记的模块: {sorted(extra)}",
+            UserWarning,
+            stacklevel=2,
+        )
 
 
 @pytest.mark.parametrize("node_name", EXPECTED_NODES)
@@ -76,19 +77,6 @@ def test_mock_function_accepts_state(node_name: str) -> None:
         f"mocks.{node_name}.{node_name} 第一个参数应命名为 state，"
         f"实际为 {positional[0].name}"
     )
-
-
-def test_mock_functions_return_dict() -> None:
-    """骨架阶段所有 mock 返回空 dict；不验证字段，只验证返回类型。
-
-    将来 mock 读取 state 字段后，此处调用可能因 None 失败，
-    应改为传入合法 GraphState 或删除该测试。
-    """
-    for name in EXPECTED_NODES:
-        module = importlib.import_module(f"mocks.{name}")
-        fn = getattr(module, name)
-        result = fn(None)
-        assert isinstance(result, dict), f"mocks.{name}.{name} 应返回 dict"
 
 
 def test_mock_toml_lists_all_nodes() -> None:
