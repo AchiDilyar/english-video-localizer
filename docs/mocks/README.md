@@ -32,6 +32,8 @@ mock 都会留下固定前缀的 warning（见下表），排查靠 `grep` 日�
 | `translate_blocks.py` | 静态真实译文 + 反查表填 `block_id` + 指纹分支 |
 | `review_blocks.py` | 原样透传 `translated_blocks` |
 | `repair_blocks.py` | 增量节点，空实现（返回 `{}`） |
+| `b_environment.py` | 增量节点，空实现（返回 `{}`） |
+| `mix_background.py` | 增量节点，空实现（返回 `{}`） |
 | `tts_align.py` | 长度对齐静音，24 kHz |
 | `subtitle_cover.py` | 占位双语 SRT + 烧录 ASS |
 | `compose_video.py` | 1 秒黑屏 MP4 |
