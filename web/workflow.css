@@ -499,6 +499,16 @@ input:invalid,textarea:invalid {
 .node-mode[data-mode="real"] {
   color:var(--success)
 }
+.node-mock-note {
+  margin:0 0 8px;
+  padding:6px 8px;
+  border:1px solid var(--warning-border);
+  border-radius: var(--radius);
+  background:var(--warning-surface);
+  color:var(--warning);
+  font-size:10px;
+  line-height:1.5
+}
 .node-collapse {
   border:0;
   color:var(--lane);

@@ -16,9 +16,9 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 在「视频输入」节点选择本地 MP4，再点击「运行工作流」。WebUI 按视频内容去重，将上传文件保存在 `jobs/.inputs/`。每个任务目录里的 `input.mp4` 是指向同一份数据的硬链接。WebUI 随后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。原有 `jobs/webui/` 下的历史任务仍可在队列中查看。 [CLI 文档](cli/README.md)
 
-每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。现有 CLI 没有逐节点进度事件，因此工作台根据磁盘上的正式产物更新状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
+每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。现有 CLI 没有逐节点进度事件，因此工作台根据磁盘上的正式产物更新状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `logs/runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
 
-每张节点卡片显示后端配置的运行模式。「模拟」和「真实」分别对应 `config/mock.toml` 中的 `true` 和 `false`。「字幕压制准备」对应主图的 `subtitle_cover`。CLI 在运行开始时把同一配置下的节点模式写到终端和任务日志。 右键节点卡片可单独切换模式，聚焦节点标题后也可按 Shift+F10。卡片上的标记显示当前模式。模拟节点的卡片、步骤按钮和导航图使用中性灰。保存会更新本机仓库的共享配置，下次运行生效。工作台检查真实实现和上游模式，并在任务运行时禁用切换。
+每张节点卡片显示后端配置的运行模式。「模拟」和「真实」分别对应 `config/mock.toml` 中的 `true` 和 `false`。「字幕压制准备」对应主图的 `subtitle_cover`。CLI 在运行开始时把同一配置下的节点模式写到终端和任务日志。 右键节点卡片可单独切换模式，聚焦节点标题后也可按 Shift+F10。卡片上的标记显示当前模式。模拟节点的卡片、步骤按钮和导航图使用中性灰。模拟卡片还会显示强调色提示「模拟节点：此处配置不影响运行结果」。保存会更新本机仓库的共享配置，下次运行生效。工作台检查真实实现和上游模式，并在任务运行时禁用切换。
 
 当前启用的真实节点以本机 `config/mock.toml` 为准。CLI 成功退出且已生成非空 `video/final.mp4` 时，工作台显示完成，控制台和任务队列都提供 MP4 下载。主图跑完但没有生成成片时，显示「工作流已停止」。「字幕压制准备」以非空的 `subtitles/burnin.ass` 为完成标志。节点同时在该目录生成原文、译文和双语 SRT。接真实节点时由 F 维护节点开关，B/C 的环境、模型和凭据按各自模块文档准备。 [主图文档](graph/README.md) · [B 环境说明](nodes/asr_diarize/environment/README.md)
 
@@ -55,7 +55,7 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 | 节点 | 配置来源与操作 |
 | --- | --- |
-| `probe_input` | 编辑 FFmpeg 与 ffprobe 路径、音频流和视频流的绝对索引。留空使用后端自动选择。 |
+| `probe_input` | 编辑音频流和视频流的绝对索引。留空使用后端自动选择。 |
 | `asr_diarize` | 编辑本地 Whisper 模型目录、视频时长上限、音频复识别、Community-1 缓存目录与设备、说话人数量、区分超时和语义复核设置。Community-1 Python 继承当前环境，卡片只读展示该项。 |
 | `build_blocks` | 只读展示正式分块跨度和默认术语表，沿用转写节点已生成的英文分段。 |
 | `translate_blocks`、`review_blocks` | 只读展示同一份 DeepSeek 模型及请求超时。模型由 `DEEPSEEK_MODEL` 环境变量或本地 `.env` 提供。 |

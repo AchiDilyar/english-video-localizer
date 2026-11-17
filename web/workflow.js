@@ -191,6 +191,8 @@ function updateNodeMode(card, nodeId) {
   badge.dataset.mode = mode;
   badge.textContent = modeLabels[mode] ?? '未知';
   badge.setAttribute('aria-label', `运行模式：${badge.textContent}`);
+  const mockNote = card.querySelector('.node-mock-note');
+  if (mockNote) mockNote.hidden = mode !== 'mock';
 }
 
 function applyBackendModes(modes) {
@@ -344,6 +346,9 @@ function renderNodes() {
     const fields = el('div', 'node-fields');
     fields.setAttribute('aria-label', `${node.title}参数`);
     renderNodeFields(fields, node);
+    const mockNote = el('p', 'node-mock-note', '模拟节点：此处配置不影响运行结果。');
+    mockNote.hidden = true;
+    fields.prepend(mockNote);
     if (node.id === 'asr_diarize') {
       const preview = el('details', 'node-preview');
       const body = el('div', 'node-preview-content');

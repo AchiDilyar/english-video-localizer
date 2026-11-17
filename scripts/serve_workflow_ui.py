@@ -89,14 +89,20 @@ def save_job_input(source, size: int, job: Path) -> None:
     pending.unlink()
 
 
+def runner_log(job: Path) -> Path:
+    """后端控制台日志：新任务写入 logs/runner.log，旧任务兼容根目录。"""
+    path = job / "logs" / "runner.log"
+    return path if path.is_file() else job / "runner.log"
+
+
 def cli_failure(job: Path) -> str:
-    with (job / "runner.log").open("rb") as log:
+    with runner_log(job).open("rb") as log:
         log.seek(max(0, log.seek(0, 2) - 8192))
         lines = log.read().decode("utf-8", errors="replace").splitlines()
     for line in reversed(lines):
         if line.startswith("运行失败: "):
             return line[:500]
-    return "工作流执行失败，请检查任务日志 logs/run.log 或 runner.log。"
+    return "工作流执行失败，请检查任务日志 logs/run.log 或 logs/runner.log。"
 
 
 class WorkflowServer(ThreadingHTTPServer):
@@ -193,8 +199,10 @@ class WorkflowServer(ThreadingHTTPServer):
     def run_workflow(self, job: Path) -> None:
         # Use the same module as run-input in a separate process for each task.
         command = [sys.executable, "-u", "-m", "cli", "--work-dir", str(job), "--input", "input.mp4"]
+        log_path = job / "logs" / "runner.log"
         try:
-            with (job / "runner.log").open("wb") as log:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("wb") as log:
                 run = subprocess.run(
                     command, cwd=ROOT, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                     stdout=log, stderr=subprocess.STDOUT, timeout=3 * 60 * 60, check=False,
@@ -254,7 +262,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         # Capture the worker state before reading to include its final output.
         running = self.server.active_job == job.name
         try:
-            with (job / "runner.log").open("rb") as log:
+            with runner_log(job).open("rb") as log:
                 log.seek(offset)
                 content = log.read(LOG_CHUNK_BYTES + 1)
         except FileNotFoundError:

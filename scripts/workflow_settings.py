@@ -25,6 +25,9 @@ OPTIONS = {
     "compose_video": ComposeOptions,
 }
 READ_ONLY = {"community1_python"}
+# Fields the workbench should not show. The backend models and save_settings
+# still accept them so existing TOML values stay intact.
+HIDDEN_FIELDS = {"probe_input": frozenset({"ffprobe", "ffmpeg"})}
 CHOICES = {
     "community1_device": ["cpu", "cuda"],
     "semantic_provider": ["none", "deepseek"],
@@ -75,7 +78,14 @@ def settings_snapshot(node: str, source: bytes) -> dict:
 
 def read_settings(config_dir: Path, node: str) -> dict:
     if node in OPTIONS:
-        return settings_snapshot(node, (config_dir / f"{node}.toml").read_bytes())
+        snapshot = settings_snapshot(node, (config_dir / f"{node}.toml").read_bytes())
+        hidden = HIDDEN_FIELDS.get(node)
+        if hidden:
+            snapshot = {
+                **snapshot,
+                "fields": [field for field in snapshot["fields"] if field["key"] not in hidden],
+            }
+        return snapshot
     if node == "build_blocks":
         return {"fixed": {
             "max_block_span_ms": MAX_BLOCK_SPAN_MS, "default_terminology": DEFAULT_TERMINOLOGY,
