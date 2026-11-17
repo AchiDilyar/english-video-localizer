@@ -38,3 +38,8 @@
 - 按 F 最新主图让 b_environment 与翻译链并行，mix_background 汇合后合成；不再以独立 BCDE 图绕开主图。
 - 固定路径不入 State，回执在 State 传递并经公共工具写盘；只新增增量产物，不覆盖 dub.wav/source.wav。
 - 下游 None 安全，增量异常返回空增量后基础链继续；测试包含正常、缺失、分离失败、混音失败及陈旧混音拒用。
+
+
+## v1.0.4 2026-11-17
+
+GraphState.input_video 类型仍为 str | None、默认 None，补充字段说明：兼容任务内文件名，同时允许显式绝对原片路径，只读且不复制。没有新增必填字段、未改变其他字段。同步 dataflow.md / architecture.md、输入产物路径说明及重新生成 interfaces.md；真实/模拟节点兼容旧文件名和新绝对路径。

@@ -81,6 +81,8 @@ def recognize_final_audio(state,model_dir):
     if cache.exists():
         previous=json.loads(cache.read_text(encoding='utf-8'))
         if previous['audio_sha256']==audio_hash and previous['model_dir']==model_dir and previous.get('segmentation_version')==2:return previous
+    from utils.local_models import require_whisper_model
+    model_dir = require_whisper_model(model_dir)
     from faster_whisper import WhisperModel
     started=time.perf_counter()
     with wave.open(str(audio),'rb') as handle:

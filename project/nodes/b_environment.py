@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 
 from contracts import EnvironmentAudio, GraphState
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,12 +19,14 @@ from .background_audio import digest, separate
 from .probe_input.node import input_path
 from .tts_align import resolve_ffmpeg
 
+logger = logging.getLogger(__name__)
+
 
 class EnvironmentOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_dir: str = "models/background-demucs"
     event_model_dir: str = "models/ast-audioset"
-    device: str = "cpu"
+    device: Literal["cpu", "cuda"] = "cpu"
     restore_nonverbal: bool = True
     event_threshold: float = Field(default=0.2, ge=0, le=1)
     speech_guard_sec: float = Field(default=0.08, ge=0, le=1)
@@ -69,6 +73,8 @@ def b_environment(state: GraphState) -> dict:
     duration = state.media_info.duration_ms / 1000
     ffmpeg = resolve_ffmpeg()
     output = Path(artifact_path("environment_bed"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("b_environment: local Demucs separation, duration=%.3fs, device=%s", duration, options.device)
     # Partial media, separation stems and event features are private and cleaned on failure.
     with TemporaryDirectory(prefix=".b-environment-", dir=output.parent) as tmp:
         work = Path(tmp)
@@ -87,6 +93,7 @@ def b_environment(state: GraphState) -> dict:
 
             gaps = _event_gaps(state.segments, duration, options.speech_guard_sec)
             if gaps:
+                logger.info("b_environment: checking %d speech-free event windows", len(gaps))
                 feature_file, events = work / "events.npz", work / "events.json"
                 features(work / "vocals.wav", feature_file, ffmpeg, intervals=gaps)
                 classify(feature_file, _model_path(options.event_model_dir), events)
@@ -120,4 +127,5 @@ def b_environment(state: GraphState) -> dict:
         )
         bed.replace(output)
         write_artifact("environment_audio", receipt)
+    logger.info("b_environment: published environment.wav, restored nonverbal intervals=%d", len(intervals))
     return {"environment_audio": receipt}

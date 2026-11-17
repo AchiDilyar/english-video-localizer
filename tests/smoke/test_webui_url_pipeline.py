@@ -77,10 +77,9 @@ def test_web_url_to_captioned_video(server, tmp_path, monkeypatch, download_fail
         seen.append(url)
         if download_fails:
             raise ValueError("test download unavailable")
-        shutil.copyfile(source, work / "input.mp4")
-        return "input.mp4"
+        return source, {'source_video':str(source),'url':url}
 
-    monkeypatch.setattr("nodes.probe_input.youtube.prepare_youtube_input", acquire)
+    monkeypatch.setattr(ui, "acquire_youtube", acquire)
     nodes = {name: (lambda state: {}) for name in registry.NODE_NAMES}
     nodes["probe_input"] = importlib.import_module("nodes.probe_input").probe_input
     segment = Segment(
@@ -137,6 +136,7 @@ def test_web_url_to_captioned_video(server, tmp_path, monkeypatch, download_fail
         assert "test download unavailable" in status["message"]
         return
     assert status["state"] == "complete" and status["input_ready"] and status["final_video_ready"]
+    assert not (job/'input.mp4').exists()
     assert set(status["node_states"]) == set(registry.NODE_NAMES)
     assert status["node_states"]["mix_background"] == "no_output"
     video = job / "video/final.mp4"

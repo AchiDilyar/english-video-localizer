@@ -19,6 +19,47 @@ let rows = [];
 let latestEnd = [];
 let active = -1;
 let frame = null;
+let videoMode = 'original';
+let finalReady = false;
+
+function videoButtons() {
+  $('review-original').setAttribute('aria-pressed', String(videoMode === 'original'));
+  $('review-target').setAttribute('aria-pressed', String(videoMode === 'target'));
+  $('review-target').disabled = !finalReady;
+  $('review-target').title = finalReady ? '播放本任务生成的配音字幕成片' : '该任务尚未生成目标视频';
+}
+
+function switchVideo(mode) {
+  if (mode === 'target' && !finalReady) return;
+  const time = video.currentTime || 0;
+  const playing = !video.paused;
+  video.onloadedmetadata = null;
+  videoMode = mode;
+  const url = mode === 'target' ? `/api/workflow-runs/${jobId}/final-video?download=0`
+    : objectUrl ?? (jobId ? `/api/workflow-runs/${jobId}/preview-video` : null);
+  setVideo(url, mode === 'target' ? '当前任务的目标视频' : '当前任务的原视频');
+  videoButtons();
+  if (url) video.onloadedmetadata = () => {
+    video.currentTime = Math.min(time, Number.isFinite(video.duration) ? video.duration : time);
+    if (playing) video.play().catch(() => {});
+    video.onloadedmetadata = null;
+  };
+}
+
+async function checkTargetVideo() {
+  const id = jobId;
+  if (!id) return;
+  try {
+    const response = await fetch(`/api/workflow-runs/${id}`, { cache: 'no-store' });
+    if (!response.ok) return;
+    const result = await response.json();
+    if (id !== jobId) return;
+    finalReady = !!result.final_video_ready;
+    videoButtons();
+  } catch {
+    // Original playback remains available if status polling fails.
+  }
+}
 
 function saveJob(id) {
   try {
@@ -32,6 +73,9 @@ function saveJob(id) {
 function changeJob(id) {
   if (id === jobId) return;
   jobId = id;
+  videoMode = 'original';
+  finalReady = false;
+  videoButtons();
   initialCheckJob = null;
   initialTab.hidden = true;
   saveJob(id);
@@ -71,6 +115,8 @@ export function restoreReviewView(view, file) {
     changeJob(view.jobId);
     setVideo(objectUrl ?? (jobId ? `/api/workflow-runs/${jobId}/preview-video` : null),
       file?.name ?? (jobId ? '当前任务的原视频' : ''));
+    videoMode = 'original';
+    videoButtons();
   }
   $('review-follow').checked = view.follow;
   setStage(view.stage);
@@ -122,6 +168,9 @@ export function setPreviewInput(file) {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = file ? URL.createObjectURL(file) : null;
   setVideo(objectUrl, file?.name ?? '链接视频下载完成后可预览');
+  videoMode = 'original';
+  finalReady = false;
+  videoButtons();
   setStage('segmented');
 }
 
@@ -129,7 +178,7 @@ export function setPreviewJob(id) {
   if (!validId.test(id)) return;
   const isNewJob = id !== jobId;
   changeJob(id);
-  if (!objectUrl) setVideo(`/api/workflow-runs/${id}/preview-video`, '当前任务的原视频');
+  if (!objectUrl && (isNewJob || videoMode === 'original')) setVideo(`/api/workflow-runs/${id}/preview-video`, '当前任务的原视频');
   if (isNewJob) setStage('segmented');
   else refreshSubtitleReview();
 }
@@ -230,6 +279,7 @@ export async function refreshSubtitleReview() {
     return;
   }
   void checkInitialTab();
+  void checkTargetVideo();
   const controller = new AbortController();
   request = controller;
   try {
@@ -252,6 +302,8 @@ export async function refreshSubtitleReview() {
 }
 
 $('workflow-tab').onclick = () => showView(false);
+$('review-original').onclick = () => switchVideo('original');
+$('review-target').onclick = () => switchVideo('target');
 $('subtitle-tab').onclick = () => showView(true);
 for (const tab of stageTabs) tab.onclick = () => setStage(tab.dataset.stage);
 for (const event of ['timeupdate', 'seeking', 'seeked', 'loadedmetadata']) {

@@ -177,6 +177,10 @@ def test_recognition_consumes_resolved_path_without_artifact_reconstruction(monk
 
     audio = tmp_path / "resolved audio.wav"
     audio.write_bytes(b"not decoded: model is a fixed test double")
+    model_dir = tmp_path / "local-model"
+    model_dir.mkdir()
+    for filename in ("model.bin", "config.json", "tokenizer.json"):
+        (model_dir / filename).write_bytes(b"fixed model fixture")
     words = [SimpleNamespace(word=w, start=i * .4, end=i * .4 + .3)
              for i, w in enumerate("Python is useful.".split())]
     model = MagicMock()
@@ -187,10 +191,10 @@ def test_recognition_consumes_resolved_path_without_artifact_reconstruction(monk
         raise AssertionError("Shared recognition must not reconstruct a job artifact path")
 
     monkeypatch.setattr(common, "artifact", forbidden)
-    table = node.recognize(audio, 2000, node.ASROptions(audio_recheck=False))
+    table = node.recognize(audio, 2000, node.ASROptions(model_dir=str(model_dir), audio_recheck=False))
     assert model.transcribe.call_args.args == (str(audio),)
     assert table["sentences"][0]["en"] == "Python is useful."
-    assert list(tmp_path.iterdir()) == [audio]
+    assert set(tmp_path.iterdir()) == {audio, model_dir}
 
 
 def test_worker_diagnostics_use_parent_module_logger(monkeypatch, tmp_path, caplog):

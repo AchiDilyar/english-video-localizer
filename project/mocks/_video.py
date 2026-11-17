@@ -31,8 +31,8 @@ def input_path(state: GraphState) -> Path:
     filename = state.input_video
     if not filename:
         raise ValueError("mocks: state.input_video 为空")
-    if "/" in filename or "\\" in filename or Path(filename).is_absolute():
-        raise ValueError("mocks: input_video 必须是工作目录根目录下的文件名")
+    if not Path(filename).is_absolute() and ("/" in filename or "\\" in filename):
+        raise ValueError("mocks: input_video 必须是文件名或原视频绝对路径")
     if Path(filename).suffix.lower() != ".mp4":
         raise ValueError("mocks: 基础版只接受本地 MP4")
 

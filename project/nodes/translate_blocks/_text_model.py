@@ -8,7 +8,7 @@ import httpx
 from contracts import Segment, TranslatedSegment
 from dotenv import load_dotenv
 
-from ._deepseek import DEFAULT_MODEL, generate_json
+from ._deepseek import DEFAULT_BASE_URL, DEFAULT_MODEL, generate_json
 
 REQUEST_TIMEOUT_SEC = 60.0
 
@@ -57,6 +57,7 @@ def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT
             payload,
             api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             model=text_model_name(),
+            base_url=os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL,
         )
 
 

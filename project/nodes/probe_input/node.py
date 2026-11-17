@@ -23,8 +23,8 @@ def input_path(state: GraphState) -> Path:
     if not isinstance(state, GraphState):
         raise TypeError("Node input must be a contracts.GraphState instance")
     filename = state.input_video
-    if not filename or "/" in filename or "\\" in filename or Path(filename).is_absolute():
-        raise ValueError("input_video must be a filename in the existing work directory")
+    if not filename or (not Path(filename).is_absolute() and ("/" in filename or "\\" in filename)):
+        raise ValueError("input_video must be a filename or an explicit absolute source path")
     path = Path(integration.artifact_path("input_video", filename))
     if path.suffix.lower() != ".mp4":
         raise ValueError("The team basic workflow accepts a local MP4")

@@ -120,7 +120,7 @@ LangGraph 顶层状态。
 
 | 字段 | 类型 | 必填 | 约束/说明 |
 |---|---|---|---|
-| `input_video` | `UnionType[str, None]` | 否 | — |
+| `input_video` | `UnionType[str, None]` | 否 | 原视频文件名（相对任务目录）或显式绝对路径（只读素材，不复制到任务目录） |
 | `media_info` | `UnionType[MediaInfo, None]` | 否 | — |
 | `segments` | `UnionType[list[Segment], None]` | 否 | — |
 | `blocks` | `UnionType[list[TranslationBlock], None]` | 否 | — |

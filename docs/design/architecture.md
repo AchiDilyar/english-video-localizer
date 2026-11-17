@@ -1,7 +1,7 @@
 # 项目代码架构设计
 
-版本：v1.7.0
-最后更新：2026-11-13
+版本：v1.9.0
+最后更新：2026-11-17
 
 ---
 
@@ -292,7 +292,7 @@ def load_config(filename: str) -> dict:
 ### 7.1 命令形式
 
 ```bash
-run-input [--work-dir PATH] [--input FILENAME]
+run-input [--work-dir PATH] [--input FILENAME_OR_ABSOLUTE_SOURCE_PATH]
 ```
 
 启动前，工作目录和输入视频必须存在；CLI 不负责创建根目录，只创建子目录。
@@ -302,7 +302,9 @@ run-input [--work-dir PATH] [--input FILENAME]
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `--work-dir` | 当前目录 `.` | 工作目录，必须已存在 |
-| `--input` | `input.mp4` | 工作目录根目录下的输入视频文件名，必须已存在 |
+| `--input` | `input.mp4` | 兼容工作目录内文件名；支持显式原视频绝对路径，直接只读，不复制原片。链接入口先获取共享素材后传入绝对路径 |
+
+本次按用户要求扩展原片只读输入：任务目录仅保存输出。外部原片依然使用 artifact_path("input_video", 引用) 解析，原文件名方式保持兼容；不新增主图或节点。
 
 ### 7.3 出口
 

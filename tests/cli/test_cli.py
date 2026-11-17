@@ -45,6 +45,19 @@ class _FakeGraph:
         return {}
 
 
+def test_voice_permission_is_per_invocation(work_dir, fake_graph, monkeypatch):
+    (work_dir / 'input.mp4').touch()
+    observed=[]
+    monkeypatch.setenv('LOCALIZER_AUTHORIZE_VOICE_CLONE','inherited-not-authorized')
+    monkeypatch.setattr(fake_graph,'invoke',lambda state:observed.append(os.getenv('LOCALIZER_AUTHORIZE_VOICE_CLONE')))
+    assert cli.main(['--work-dir',str(work_dir),'--authorize-voice-clone'])==0
+    assert observed==['1']
+    assert os.getenv('LOCALIZER_AUTHORIZE_VOICE_CLONE')=='inherited-not-authorized'
+    assert cli.main(['--work-dir',str(work_dir)])==0
+    assert observed==['1','0']
+    assert os.getenv('LOCALIZER_AUTHORIZE_VOICE_CLONE')=='inherited-not-authorized'
+
+
 def test_youtube_url_is_downloaded_before_graph(work_dir,fake_graph,monkeypatch):
     def prepare(url,folder):
         assert url=='https://youtu.be/BaW_jenozKc'

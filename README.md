@@ -6,6 +6,8 @@
 
 **当前状态（2026-11-17）：** 已接入真实节点，并完成约35分钟双人对谈的本地实验。该实验B/C复用同源真实结果，D/E重新运行，不代表所有环节重新全量推理，也不代表生产、GPU和全部慢测已验收。
 
+**本轮更新：** 已上传 WebUI 原片/成片预览切换、密钥不回显的 API 设置（地域可填写）、原片共享复用、授权后的自动音色准备、本地模型检查，以及 B/E 真实背景分离与混音。完整代码改动见 [2d2e648（52个文件）](https://github.com/AchiDilyar/english-video-localizer/commit/2d2e648)，使用与验证说明见 [WebUI 文档](docs/webui.md)。后续合并提交同时保留了团队 PPT 更新，不能只凭最后一次合并的文件列表判断代码是否已上传。个人密钥、接口配置和音色账户记录仅留本机。
+
 ## 1. 功能与流程
 
 | 功能 | 当前支持情况 |
@@ -16,8 +18,8 @@
 | 中文配音 | CosyVoice v3 flash；系统音色或预先授权登记的原声复刻音色 |
 | 时长适配 | 按实际音频测量并局部改稿；后期0.95–1.35倍，不裁语音句尾 |
 | 双语字幕 | 配音后生成；中文上、英文下居中，各一行；超宽只在显示阶段顺序分页 |
-| 背景音 | 由主图 b_environment / mix_background 执行；当前默认模拟这两项，启用真实实现需本地模型 |
-| WebUI | 本地MP4或YouTube链接输入；下载后自动接主图，显示11个节点、并行进度、日志、字幕及成片下载 |
+| 背景音 | 主图 b_environment / mix_background 已启用真实处理；本地 Demucs 分离背景、AST 保守恢复非语言声音，再混入中文配音。需本地模型与 speech / sound-events 依赖，失败按增量规则回退纯配音 |
+| WebUI | 本地MP4、YouTube链接或已有素材输入；直接复用原片，显示11节点进度、日志；字幕预览可切换原片/成片，API设置支持密钥隐藏与可填写地域 |
 
 当前代码执行顺序：
 
@@ -71,10 +73,13 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 
 在本机`.env`填写：
 
+也可打开 WebUI 顶栏「API 设置」填写翻译接口地址、模型、密钥及配音地域、模型、业务空间、密钥。密钥不回显，留空保留，清除需单独勾选；只写本机配置，下次任务生效，运行中禁止修改。仓库仅提供空值/通用示例，不包含个人网关或账号资料。声音复刻另需在当前视频勾选授权，不能由 API 配置代替授权。
+
 | 配置 | 用途 |
 |---|---|
 | `DEEPSEEK_API_KEY` | 默认HTTP通道的翻译、审校、音稿返工和可选语义分片 |
 | `DEEPSEEK_TRANSPORT=api` | 默认文本模型通道；模型名可通过`DEEPSEEK_MODEL`设置 |
+| `DEEPSEEK_BASE_URL` | 可选兼容网关地址；个人地址仅保存在本机，不写入代码 |
 | `DASHSCOPE_API_KEY` | 中文语音生成，不能用DeepSeek密钥代替 |
 | `DASHSCOPE_REGION=ap-southeast-1` | 当前实验使用新加坡地域，须与账号、音色一致 |
 | `DASHSCOPE_WORKSPACE` | 可选工作空间，以账号实际配置为准 |
@@ -92,6 +97,8 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 | 英文Whisper | `models/faster-whisper-base.en` | `config/asr_diarize.toml` |
 | Community-1缓存 | `models/community-1-hf-cache` | `config/asr_diarize.toml` |
 | 最终中文音轨Whisper | `models/faster-whisper-small` | `config/subtitle_cover.toml` |
+| 背景Demucs | `models/background-demucs/torchaudio/models/hdemucs_high_trained.pt` | `config/b_environment.toml` |
+| 非语言事件AST | `models/ast-audioset/model.onnx` 和 `config.json` | `config/b_environment.toml` |
 
 完成上面的完整`uv sync`后，可准备Whisper权重；以下`--no-sync`保持已安装的依赖组合：
 
@@ -110,10 +117,10 @@ uv run --no-sync python -m nodes.asr_diarize.community1_worker --prepare-model -
 
 ### 系统音色与原声复刻
 
-`config/tts.toml`当前默认`voice_mode = "cloned"`，需要任务中的本机`audio/voice_profiles.json`；仅填API key不能自动给新说话人创建复刻音色。
+`config/tts.toml`当前默认`voice_mode = "cloned"`，在本次任务获得授权后，配音节点可自动选取原声并创建 audio/voice_profiles.json；已有且音频/账号/模型/地域/人物时间轴匹配的记录可直接复用。
 
 - 先验证流程时，可在本机临时设置`voice_mode = "system"`并选同地域可用的系统音色，避免把个人测试配置随意覆盖团队配置。
-- 复刻前需取得说话人的声音使用及参考原声上传授权，再按[D节点说明](docs/nodes/tts_align/README.md)和`nodes.voice_profiles.enroll_profiles`准备绑定记录。目前不是面向普通用户的一键注册入口。
+- 复刻前需取得说话人的声音使用及参考原声上传授权，再按[D节点说明](docs/nodes/tts_align/README.md)和`nodes.voice_profiles.enroll_profiles`准备绑定记录。在 WebUI 视频输入勾选本次任务的原声上传与付费音色创建授权后，可自动完成；新素材会重置勾选。
 - 记录绑定源音轨摘要、模型和地域，不应直接复制其他视频或账号的记录。缺失或不匹配会明确报错。
 
 ## 4. 运行方式
@@ -121,29 +128,28 @@ uv run --no-sync python -m nodes.asr_diarize.community1_worker --prepare-model -
 ### 只下载YouTube视频
 
 ```powershell
-uv run --locked --extra b-asr download-video "https://www.youtube.com/watch?v=jNQXAC9IVRw" --output-dir jobs/youtube-demo
+uv run --locked --extra b-asr download-video "https://www.youtube.com/watch?v=jNQXAC9IVRw" --output-dir media/downloads
 ```
 
-输出`jobs/youtube-demo/input.mp4`，来源记录在`logs/input-download.json`。这条命令**不运行翻译或配音**，目录自动创建。默认最高720p、最多2小时、2GiB、下载时限600秒，只取单条视频，不批量下载列表。失效、登录/地区限制或DRM等情况不保证可用；下载成功不等于取得转载或复刻授权。
+原片直接保存在 media/downloads/<视频ID>/video.mp4，来源记录为该目录的 source.json。相同链接复用原文件。这条命令**不运行翻译或配音**，目录自动创建。默认最高720p、最多2小时、2GiB、下载时限600秒，只取单条视频，不批量下载列表。失效、登录/地区限制或DRM等情况不保证可用；下载成功不等于取得转载或复刻授权。
 
 ### CLI真实工作流
 
-先准备模型、API和音色。每个任务使用新目录，输入放在该目录根目录：
+先准备模型、API和音色。每个任务使用新目录，直接传原视频绝对路径，无需复制：
 
 ```powershell
 New-Item -ItemType Directory -Force jobs/local-demo
-Copy-Item "C:\Videos\english.mp4" jobs/local-demo/input.mp4
-uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events run-input --work-dir jobs/local-demo --input input.mp4
+uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events run-input --work-dir jobs/local-demo --input "C:/Videos/english.mp4" --authorize-voice-clone
 ```
 
-也可直接传YouTube链接，CLI先下载成标准本地输入，再执行主图：
+也可直接传YouTube链接，CLI先获取共享原片路径，再执行主图：
 
 ```powershell
 New-Item -ItemType Directory -Force jobs/youtube-run
 uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events run-input --work-dir jobs/youtube-run --input "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 ```
 
-两条`run-input`都会继续运行真实节点，**不是只下载命令**。URL输入拒绝覆盖已有`input.mp4`；重复使用已产出音轨/转写的目录也可能被拒绝。当前基础CLI不保证检查点续跑，重复启动不等于恢复本地实验脚本进度。
+两条`run-input`都会继续运行真实节点，**不是只下载命令**。URL输入会复用已下载素材，不在任务中生成 input.mp4；处理输出目录仍需新建，重复使用已产出音轨/转写的目录也可能被拒绝。当前基础CLI不保证检查点续跑，重复启动不等于恢复本地实验脚本进度。
 
 ### WebUI
 

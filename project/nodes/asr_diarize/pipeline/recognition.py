@@ -5,11 +5,13 @@ import time
 
 from .common import BError
 from .sentence_rules import sentences_from_words, sentence_audit, validate_sentence_table
+from utils.local_models import require_whisper_model
 
 logger = logging.getLogger(__name__)
 
 
 def recognize_audio(audio_path, model_dir, duration_ms, source_meta=None, semantic_config=None):
+    model_dir = require_whisper_model(model_dir)
     from faster_whisper import WhisperModel
     import spacy
     started=time.perf_counter()

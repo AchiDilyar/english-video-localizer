@@ -40,6 +40,16 @@ def test_raw_dict_is_not_a_graph_state(shared_services):
         probe_input({"input_video": "input.mp4"})
 
 
+def test_explicit_source_path_is_read_without_task_copy(shared_services,tmp_path):
+    from nodes.probe_input.node import input_path
+    work,_,_=shared_services
+    original=tmp_path/'original-folder/video.mp4';original.parent.mkdir();original.write_bytes(b'original')
+    assert input_path(GraphState(input_video=str(original.resolve())))==original.resolve()
+    from mocks._video import input_path as mock_input_path
+    assert mock_input_path(GraphState(input_video=str(original.resolve())))==original.resolve()
+    assert not (work/'input.mp4').exists()
+
+
 def test_missing_shared_utility_has_actionable_error(monkeypatch):
     def missing(name):
         raise ModuleNotFoundError("test dependency absent", name=name)

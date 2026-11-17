@@ -6,5 +6,5 @@ fade_enabled = false
 timing_source = "speech"
 speech_model_dir = "models/faster-whisper-small"
 paginate = true
-semantic_pairing = true
 strict_single_line = true
+semantic_pairing = true

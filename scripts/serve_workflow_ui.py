@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import chain
@@ -19,10 +20,13 @@ from uuid import uuid4
 from graph.registry import NODE_NAMES
 from graph.incremental import INCREMENTAL_NODE_NAMES
 from nodes.asr_diarize.pipeline.video_inputs import youtube_url
+from nodes.probe_input.source_store import acquire_youtube, adopt_existing_jobs, catalog, resolve_source
 from subtitle_preview import subtitle_stage
 from utils.artifacts import ARTIFACT_SPECS
 from workflow_modes import ConfigChanged, mode_snapshot, save_modes
 from workflow_settings import OPTIONS, read_settings, save_settings, workflow_schema
+from api_settings import snapshot as api_snapshot, save as save_api_settings
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
@@ -32,6 +36,7 @@ ASSETS = {
     "/workflow.js": ("workflow.js", "text/javascript"),
     "/task-queue.js": ("task-queue.js", "text/javascript"),
     "/subtitle-review.js": ("subtitle-review.js", "text/javascript"),
+    "/api-settings.js": ("api-settings.js", "text/javascript"),
     "/subtitle-styles.json": ("../config/subtitle_styles.json", "application/json"),
     "/node-schema.js": ("node-schema.js", "text/javascript"),
 }
@@ -95,28 +100,41 @@ def artifact_ready(job: Path, name: str) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
 
-def save_job_input(source, size: int, job: Path) -> None:
-    """Store one physical copy per upload digest, keeping the CLI's input.mp4."""
-    pending = job / "input.upload"
+def save_job_input(source, size: int, job: Path, source_dir: Path | None = None) -> Path:
+    """Upload once into source storage, never materialize an input in the task directory."""
+    shared = source_dir or job.parent / ".inputs"
+    shared.mkdir(parents=True, exist_ok=True)
+    pending = shared / (uuid4().hex + ".upload")
     digest = sha256()
-    with pending.open("xb") as output:
-        while size:
-            chunk = source.read(min(size, 1024 * 1024))
-            if not chunk:
-                raise OSError("Incomplete upload")
-            output.write(chunk)
-            digest.update(chunk)
-            size -= len(chunk)
-
-    shared = job.parent / ".inputs"
-    shared.mkdir(exist_ok=True)
-    stored = shared / (digest.hexdigest() + ".mp4")
     try:
-        os.link(pending, stored)
-    except FileExistsError:
-        pass
-    os.link(stored, job / "input.mp4")
-    pending.unlink()
+        with pending.open("xb") as output:
+            while size:
+                chunk = source.read(min(size, 1024 * 1024))
+                if not chunk:
+                    raise OSError("Incomplete upload")
+                output.write(chunk)
+                digest.update(chunk)
+                size -= len(chunk)
+        stored = shared / (digest.hexdigest() + ".mp4")
+        try:
+            os.link(pending, stored)
+        except FileExistsError:
+            pass
+        return stored.resolve()
+    finally:
+        pending.unlink(missing_ok=True)
+
+
+def source_video_path(job: Path) -> Path:
+    meta = job / "web-run.json"
+    if meta.is_file():
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        if data.get("source_video"):
+            path = Path(data["source_video"])
+            if not path.is_absolute():
+                raise ValueError("原视频引用必须为绝对路径")
+            return path
+    return job / "input.mp4"  # Old tasks remain readable in place.
 
 
 def runner_log(job: Path) -> Path:
@@ -139,7 +157,9 @@ class WorkflowServer(ThreadingHTTPServer):
     def __init__(self, port: int):
         super().__init__(("127.0.0.1", port), WorkflowHandler)
         self.jobs = ROOT / "jobs"
+        self.sources = ROOT / "media" / "downloads"
         self.config_dir = ROOT / "config"
+        self.env_path = ROOT / ".env"
         self.mock_config = self.config_dir / "mock.toml"
         self.worker_lock = Lock()
         self.active_job = None
@@ -159,7 +179,7 @@ class WorkflowServer(ThreadingHTTPServer):
         progress = node_progress(job)
         status["node_states"] = progress
         status["active_nodes"] = [node for node in NODE_NAMES if progress.get(node) == "running"]
-        status["input_ready"] = (job / "input.mp4").is_file()
+        status["input_ready"] = source_video_path(job).is_file()
         status["subtitle_srt_ready"] = all(artifact_ready(job, name) for name in SUBTITLE_SRT_ARTIFACTS)
         recorded = set(status.get("completed_nodes", []))
         recorded.discard("subtitle_cover")
@@ -245,13 +265,25 @@ class WorkflowServer(ThreadingHTTPServer):
         log_path = job / "logs" / "runner.log"
         try:
             metadata = json.loads((job / "web-run.json").read_text(encoding="utf-8"))
-            source = metadata.get("source_url") or "input.mp4"
+            if metadata.get("source_url") and not metadata.get("source_video"):
+                adopt_existing_jobs(self.jobs, self.sources)
+                source, receipt = acquire_youtube(metadata["source_url"], self.sources)
+                metadata["source_video"] = str(source)
+                (job / "web-run.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                (job / "logs/input-download.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+                write_status(job, state="running", phase="workflow", message="直接读取原视频，正在执行主图。")
+            source = metadata.get("source_video") or "input.mp4"
             command = [sys.executable, "-u", "-m", "cli", "--work-dir", str(job),
                        "--input", source, "--report-progress"]
+            if metadata.get("authorize_voice_clone") is True:
+                command.append("--authorize-voice-clone")
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("wb") as log:
                 run = subprocess.run(
-                    command, cwd=ROOT, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    command, cwd=ROOT, env={**os.environ,
+                        **{k: v for k, v in dotenv_values(self.env_path).items() if v is not None},
+                        "PYTHONIOENCODING": "utf-8"},
                     stdout=log, stderr=subprocess.STDOUT, timeout=3 * 60 * 60, check=False,
                 )
             if run.returncode:
@@ -265,7 +297,9 @@ class WorkflowServer(ThreadingHTTPServer):
                 )
         except subprocess.TimeoutExpired:
             write_status(job, state="failed", message="工作流超过 3 小时，任务已停止。")
-        except (OSError, ValueError):
+        except ValueError as error:
+            write_status(job, state="failed", message="素材准备失败：" + str(error)[:500])
+        except OSError:
             write_status(job, state="failed", message="无法启动工作流或写入任务文件。")
         finally:
             self.active_job = None
@@ -403,6 +437,36 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         self.send_json(snapshot)
 
     def do_PUT(self) -> None:
+        if self.path == "/api/api-settings":
+            if not self.local_request():
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_json({"message": "配置请求必须使用 JSON。"}, 415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16384:
+                    raise ValueError
+            except ValueError:
+                self.send_json({"message": "配置请求大小无效。"}, 400)
+                return
+            if not self.server.worker_lock.acquire(blocking=False):
+                self.send_json({"message": "任务运行中，请结束后再修改 API。"}, 409)
+                return
+            try:
+                result = save_api_settings(self.server.env_path, self.server.config_dir / "tts.toml",
+                                           json.loads(self.rfile.read(length)))
+            except ConfigChanged:
+                self.send_json({"message": "配置已变化，请重新打开 API 设置。"}, 409)
+            except (ValueError, TypeError):
+                self.send_json({"message": "配置无效，请检查地址、模型、地域及填写格式。"}, 400)
+            except OSError:
+                self.send_json({"message": "无法保存本机配置，请检查文件权限。"}, 500)
+            else:
+                self.send_json(result)
+            finally:
+                self.server.worker_lock.release()
+            return
         if self.path == "/api/workflow-modes":
             self.update_workflow_config()
             return
@@ -418,9 +482,21 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_content((WEB / name).read_bytes(), content_type)
             return
         request = urlsplit(self.path)
+        if request.path == "/api/api-settings":
+            if self.local_request():
+                try:
+                    self.send_json(api_snapshot(self.server.env_path, self.server.config_dir / "tts.toml"))
+                except (OSError, ValueError):
+                    self.send_json({"message": "无法读取本机 API 配置。"}, 503)
+            return
         if request.path == "/api/workflow-schema":
             if self.local_request():
                 self.send_json(workflow_schema())
+            return
+        if request.path == "/api/video-sources":
+            if self.local_request():
+                adopt_existing_jobs(self.server.jobs, self.server.sources)
+                self.send_json({"sources": catalog(self.server.sources, (self.server.sources / "uploads", self.server.jobs / ".inputs"))})
             return
         settings = SETTINGS_ROUTE.fullmatch(request.path)
         if settings and settings[1] in workflow_schema()["nodes"]:
@@ -468,13 +544,14 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_run_log(job, request.query)
             return
         if match[2] == "preview-video":
-            self.send_video(job / "input.mp4")
+            self.send_video(source_video_path(job))
             return
         if match[2] == "final-video":
             if not self.server.read_run_status(job)["final_video_ready"]:
                 self.send_json({"message": "该任务尚无成片。"}, 404)
                 return
-            self.send_video(job / ARTIFACT_SPECS["final_video"].path, download=True)
+            self.send_video(job / ARTIFACT_SPECS["final_video"].path,
+                            download=parse_qs(request.query).get("download") != ["0"])
             return
         if match[3]:
             try:
@@ -520,14 +597,28 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_json({"message": "文件不能为空，且大小不能超过 2 GiB。"}, 413)
             return
         url = None
+        selected_source = None
+        authorize_voice_clone = self.headers.get("X-Authorize-Voice-Clone", "false") == "true"
+        if self.headers.get("X-Authorize-Voice-Clone", "false") not in ("true", "false"):
+            self.send_json({"message": "音色复刻授权必须明确选择。"}, 400)
+            return
         if kind == "application/json":
             try:
                 payload = json.loads(self.rfile.read(size))
-                if not isinstance(payload, dict) or set(payload) != {"url"} or not isinstance(payload["url"], str):
+                if (not isinstance(payload, dict) or len(set(payload) & {"url", "source_id"}) != 1
+                        or set(payload) - {"url", "source_id", "authorize_voice_clone"}
+                        or type(payload.get("authorize_voice_clone", False)) is not bool):
                     raise ValueError("invalid input")
-                url = youtube_url(payload["url"].strip())
+                if "url" in payload:
+                    if not isinstance(payload["url"], str):raise ValueError("invalid URL")
+                    url = youtube_url(payload["url"].strip())
+                else:
+                    if not isinstance(payload["source_id"], str):raise ValueError("invalid source")
+                    selected_source = resolve_source(payload["source_id"], self.server.sources,
+                        (self.server.sources / "uploads", self.server.jobs / ".inputs"))
+                authorize_voice_clone = payload.get("authorize_voice_clone", False)
             except (ValueError, TypeError, RuntimeError):
-                self.send_json({"message": "请输入单条有效的 YouTube 视频链接。"}, 400)
+                self.send_json({"message": "请输入有效 YouTube 链接，或重新选择已有素材。"}, 400)
                 return
         if not self.server.worker_lock.acquire(blocking=False):
             self.send_json({"message": "本机已有工作流任务在运行，请等它完成。"}, 409)
@@ -535,15 +626,24 @@ class WorkflowHandler(BaseHTTPRequestHandler):
 
         job = self.server.jobs / uuid4().hex
         try:
+            mock = tomllib.loads(self.server.mock_config.read_text(encoding="utf-8"))
+            tts = tomllib.loads((self.server.config_dir / "tts.toml").read_text(encoding="utf-8"))
+            if not mock.get("tts_align", False) and tts.get("voice_mode", "system") == "cloned" and not authorize_voice_clone:
+                self.server.worker_lock.release()
+                self.send_json({"message": "当前为原声复刻模式。请在视频输入中确认已获说话人授权并允许上传参考原声、创建音色，或改用系统音色。"}, 400)
+                return
             job.mkdir(parents=True, exist_ok=False)
-            if url is None:
-                save_job_input(self.rfile, size, job)
+            source_video = selected_source
+            if url is None and selected_source is None:
+                source_video = save_job_input(self.rfile, size, job, self.server.sources / "uploads")
             filename = ("YouTube · " + url.rsplit("=", 1)[-1] if url else
-                        unquote(self.headers.get("X-Video-Name", "")[:4096]))
+                        selected_source.name if selected_source else unquote(self.headers.get("X-Video-Name", "")[:4096]))
             filename = re.split(r"[/\\]", filename)[-1]
             filename = "".join(character for character in filename if character.isprintable())[:180]
             (job / "web-run.json").write_text(
-                json.dumps({"filename": filename, "created_at": time(), "source_url": url},
+                json.dumps({"filename": filename, "created_at": time(), "source_url": url,
+                            "source_video": str(source_video) if source_video else None,
+                            "authorize_voice_clone": authorize_voice_clone},
                            ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -551,7 +651,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             write_status(job, state="running", phase="download" if url else "workflow",
                          message="正在下载原视频，完成后自动翻译与配音。" if url else "正在执行后端工作流。")
             Thread(target=self.server.run_workflow, args=(job,), daemon=True).start()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, ValueError):
             shutil.rmtree(job, ignore_errors=True)
             self.server.active_job = None
             self.server.worker_lock.release()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .block import TranslationBlock
 from .environment import EnvironmentAudio, MixedAudio
@@ -21,7 +21,7 @@ class GraphState(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    input_video: str | None = None
+    input_video: str | None = Field(default=None, description="原视频文件名（相对任务目录）或显式绝对路径（只读素材，不复制到任务目录）")
     media_info: MediaInfo | None = None
     segments: list[Segment] | None = None
     blocks: list[TranslationBlock] | None = None

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from time import time
@@ -39,7 +40,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--report-progress", action="store_true", help="记录主图节点进度供 WebUI 查看"
     )
     parser.add_argument(
-        "--input", default="input.mp4", help="本地输入文件名或单条YouTube视频链接"
+        "--authorize-voice-clone",
+        action="store_true",
+        help="确认原声授权并允许上传参考音频、创建付费音色；仅本次任务",
+    )
+    parser.add_argument(
+        "--input", default="input.mp4", help="输入文件名、原视频绝对路径或单条YouTube链接；不复制原片"
     )
     return parser.parse_args(argv)
 
@@ -65,10 +71,11 @@ def _create_subdirs(work_dir: Path) -> None:
 
 
 def _prepare_input_video(work_dir: Path, raw_input: str) -> str:
-    """把 --input 解析为工作目录下的输入视频文件名。
+    """把 --input 解析为可用的输入视频位置。
 
-    本地文件名原样返回；http(s):// 链接先下载到工作目录，再返回下载后的文件名。
-    本函数只负责获取，不校验文件是否存在，校验由 main 中的 _check_input_video 统一完成。
+    任务内文件名原样返回；原视频绝对路径原样返回（只读素材，不复制）；
+    http(s):// 链接下载或复用到共享素材目录，返回其绝对路径。
+    本函数只负责获取，不校验是否存在，校验由 main 中的 _check_input_video 统一完成。
     """
     if not raw_input.startswith(("https://", "http://")):
         return raw_input
@@ -93,7 +100,9 @@ def _stream_with_progress(graph, state, destination: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     work_dir = Path(args.work_dir).resolve()
+    previous_voice_permission = os.environ.get("LOCALIZER_AUTHORIZE_VOICE_CLONE")
     try:
+        os.environ["LOCALIZER_AUTHORIZE_VOICE_CLONE"] = "1" if args.authorize_voice_clone else "0"
         _check_work_dir(work_dir)
         set_work_dir(str(work_dir))
         setup_logging(str(work_dir / "logs" / "run.log"))
@@ -121,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logger.exception("运行失败: %s", exc)
         raise
+    finally:
+        if previous_voice_permission is None:
+            os.environ.pop("LOCALIZER_AUTHORIZE_VOICE_CLONE", None)
+        else:
+            os.environ["LOCALIZER_AUTHORIZE_VOICE_CLONE"] = previous_voice_permission
 
 
 def run() -> int:
