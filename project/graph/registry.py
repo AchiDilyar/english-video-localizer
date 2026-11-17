@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 NODE_NAMES = (
     "probe_input",
     "asr_diarize",
+    "b_environment",
     "build_blocks",
     "translate_blocks",
     "review_blocks",
     "repair_blocks",
     "tts_align",
     "subtitle_cover",
+    "mix_background",
     "compose_video",
 )
 

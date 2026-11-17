@@ -126,11 +126,14 @@ def test_wrapper_swallows_oserror(caplog):
 ORIGINAL_NODE_NAMES = (
     "probe_input",
     "asr_diarize",
+    "b_environment",
     "build_blocks",
     "translate_blocks",
     "review_blocks",
+    "repair_blocks",
     "tts_align",
     "subtitle_cover",
+    "mix_background",
     "compose_video",
 )
 
@@ -139,15 +142,16 @@ EXTENDED_NODE_NAMES = ORIGINAL_NODE_NAMES + ("incremental_x",)
 # 展开多前驱等待边，便于断言；语义与 builder 原 WORKFLOW_EDGES 一致。
 EXTENDED_EDGES = (
     ("probe_input", "asr_diarize"),
+    ("asr_diarize", "b_environment"),
     ("asr_diarize", "build_blocks"),
     ("build_blocks", "translate_blocks"),
     ("translate_blocks", "review_blocks"),
-    ("review_blocks", "tts_align"),
-    ("review_blocks", "subtitle_cover"),
+    ("review_blocks", "repair_blocks"),
+    ("repair_blocks", "tts_align"),
+    ("tts_align", "subtitle_cover"),
+    (("subtitle_cover", "b_environment"), "mix_background"),
     ("review_blocks", "incremental_x"),
-    ("tts_align", "compose_video"),
-    ("subtitle_cover", "compose_video"),
-    ("incremental_x", "compose_video"),
+    (("mix_background", "incremental_x"), "compose_video"),
 )
 
 

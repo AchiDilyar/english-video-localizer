@@ -2,8 +2,8 @@
 
 # 项目工作流设计（workflow.md）
 
-版本：v1.7.0
-最后更新：2026-11-13
+版本：v1.8.0
+最后更新：2026-11-17
 
 ---
 
@@ -77,12 +77,14 @@
 |---|---|---|---|---|---|
 | `probe_input` | 基础版 | B | 探测输入视频的时长、分辨率、音视频流信息 | 输入视频 | 媒体信息 |
 | `asr_diarize` | 基础版 | B | 从输入视频提取音轨，做英文转写与说话人区分，生成全片时间轴分段 | 输入视频 | 提取音频、分段结果 |
+| `b_environment` | 增量 | B | 分离背景、恢复非语言事件，发布环境音与来源回执 | 输入视频、分段结果 | 环境音、来源回执 |
 | `build_blocks` | 基础版 | C | 在自然句边界把分段聚合为翻译块，并维护术语表 | 分段结果 | 翻译块、术语表 |
 | `translate_blocks` | 基础版 | C | 翻译智能体为每个分段生成中文字幕文本和中文口播稿 | 翻译块、术语表 | 翻译结果 |
 | `review_blocks` | 基础版 | C | 审校智能体检查术语一致性和明显错漏，输出可用译文 | 翻译结果、分段结果 | 审校结果 |
 | `repair_blocks` | 增量 | C | 对审校结果做问题审计与按片段定向返工，输出修复结果 | 审校结果、分段结果 | 修复结果 |
 | `tts_align` | 基础版 | D | 按说话人音色合成中文口播音频，测时长并对齐原时间窗，组装整条中文配音音轨。音色映射需要作为配置项维护。 | 审校结果、修复结果 | 分段音频清单、分段音频文件、中文配音音轨 |
 | `subtitle_cover` | 基础版 | E | 生成双语 SRT、烧录字幕 | 审校结果、修复结果 | 双语 SRT、烧录字幕 |
+| `mix_background` | 增量 | E | 将环境音混入中文配音音轨 | 中文配音音轨、环境音 | 混合音轨 |
 | `compose_video` | 基础版 | E | 用中文配音替换原音轨，烧录双语字幕，合成中文配音成片 | 输入视频、中文配音音轨、烧录字幕 | 成片 |
 
 ---
@@ -98,16 +100,18 @@ flowchart TD
 
     START --> N1[probe_input]
     N1 --> N2[asr_diarize]
+    N2 --> N2B[b_environment]
     N2 --> N3[build_blocks]
     N3 --> N4[translate_blocks]
     N4 --> N5[review_blocks]
 
     N5 --> N5B[repair_blocks]
     N5B --> N6[tts_align]
-    N5B --> N8[subtitle_cover]
+    N6 --> N8[subtitle_cover]
 
-    N6 --> N9[compose_video]
-    N8 --> N9
+    N8 --> N8B[mix_background]
+    N2B --> N8B
+    N8B --> N9[compose_video]
 
     N9 --> END((END))
 
@@ -117,9 +121,11 @@ flowchart TD
 图说明：
 
 - 实线表示依赖关系，箭头方向为执行顺序。
-- `repair_blocks` 在 `review_blocks` 之后执行，是 `tts_align`、`subtitle_cover` 的唯一前驱。
-- `tts_align`、`subtitle_cover` 在 `repair_blocks` 之后可并行。
-- `compose_video` 等待 `tts_align` 和 `subtitle_cover`。
+- `b_environment` 在 `asr_diarize` 之后分叉，与 `build_blocks` 及之后的 C/D 主链并行。
+- `repair_blocks` 在 `review_blocks` 之后执行，是 `tts_align` 的唯一前驱。
+- `tts_align` 在 `repair_blocks` 之后执行；`subtitle_cover` 在 `tts_align` 之后执行。
+- `mix_background` 等待 `subtitle_cover` 与 `b_environment`；`compose_video` 等待 `mix_background`。
+- `b_environment`、`mix_background` 为增量节点，异常时由代理返回空增量，基础路径继续。
 - `compose_video` 是最后一个业务节点，完成后图进入 `END`。
 - CLI 入口出口的具体约定见 `architecture.md`。
 

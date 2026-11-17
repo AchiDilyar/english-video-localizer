@@ -100,7 +100,7 @@ def test_edges_match_workflow(monkeypatch):
     )
 
 def test_each_node_runs_exactly_once(monkeypatch):
-    """汇合节点有多个前驱，但不重复触发；8 个节点各执行一次。"""
+    """汇合节点有多个前驱，但不重复触发；每个节点各执行一次。"""
     calls: list[str] = []
     _install_fake_nodes(monkeypatch, calls)
 
@@ -142,6 +142,45 @@ def test_subtitle_cover_waits_for_review(monkeypatch):
         f"subtitle_cover 应在 review_blocks 之后；实际: {calls}"
     )
     assert calls.index('subtitle_cover') > calls.index('tts_align')
+
+
+def test_b_environment_waits_for_asr(monkeypatch):
+    """workflow.md 第 4 节：b_environment 从 asr_diarize 之后分叉。"""
+    calls: list[str] = []
+    _install_fake_nodes(monkeypatch, calls)
+
+    builder.build_graph().invoke(_initial_state())
+
+    assert calls.index("b_environment") > calls.index("asr_diarize"), (
+        f"b_environment 应在 asr_diarize 之后；实际: {calls}"
+    )
+
+
+def test_mix_background_waits_for_subtitle_and_b(monkeypatch):
+    """workflow.md 第 4 节：mix_background 等待 subtitle_cover 与 b_environment。"""
+    calls: list[str] = []
+    _install_fake_nodes(monkeypatch, calls)
+
+    builder.build_graph().invoke(_initial_state())
+
+    assert calls.index("mix_background") > calls.index("subtitle_cover"), (
+        f"mix_background 应在 subtitle_cover 之后；实际: {calls}"
+    )
+    assert calls.index("mix_background") > calls.index("b_environment"), (
+        f"mix_background 应在 b_environment 之后；实际: {calls}"
+    )
+
+
+def test_compose_video_waits_for_mix_background(monkeypatch):
+    """workflow.md 第 4 节：compose_video 等待 mix_background。"""
+    calls: list[str] = []
+    _install_fake_nodes(monkeypatch, calls)
+
+    builder.build_graph().invoke(_initial_state())
+
+    assert calls.index("compose_video") > calls.index("mix_background"), (
+        f"compose_video 应在 mix_background 之后；实际: {calls}"
+    )
 
 
 def test_compose_video_waits_for_tts_and_subtitle(monkeypatch):

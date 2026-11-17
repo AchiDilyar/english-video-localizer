@@ -7,13 +7,15 @@ from .registry import NODE_NAMES, resolve_nodes
 # Business edges shared by the graph and configuration validation.
 WORKFLOW_EDGES = (
     ("probe_input", "asr_diarize"),
+    ("asr_diarize", "b_environment"),
     ("asr_diarize", "build_blocks"),
     ("build_blocks", "translate_blocks"),
     ("translate_blocks", "review_blocks"),
     ("review_blocks", "repair_blocks"),
     ("repair_blocks", "tts_align"),
     ("tts_align", "subtitle_cover"),
-    ("subtitle_cover", "compose_video"),
+    (("subtitle_cover", "b_environment"), "mix_background"),
+    ("mix_background", "compose_video"),
 )
 
 

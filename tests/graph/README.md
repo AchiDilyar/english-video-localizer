@@ -14,7 +14,7 @@ uv run pytest tests/graph
 | --- | --- |
 | `test_registry.py` | `graph.registry.resolve_nodes` 的切换规则与配置校验：未列出或显式 `false` 的节点走真实；每个节点独立开关；`mock.toml` 未知键、非布尔值、`load_config` 返回非 dict、节点模块缺函数、节点属性非 callable 全部直接失败；`INCREMENTAL_NODE_NAMES` 含未知节点时启动即失败；增量节点经代理包装后异常返回 `{}` 并记录 `warning`；非增量节点异常继续上抛 |
 | `test_incremental.py` | `graph.incremental` 的代理行为：正常透传、`Exception` 吞掉并记录带栈 `warning`、`BaseException` 继续上抛、只包装增量集合内节点、空集合保持函数同一性、元数据保留、`OSError` 模拟写盘失败仍返回空增量；图级别测试通过 patch 常量走真实 `build_graph()`，验证增量节点异常时基础版链与 `compose_video` 继续执行、增量正常返回时合并进 State |
-| `test_builder.py` | `graph.build_graph` 的拓扑与执行语义：`NODE_NAMES` 中的全部节点注册；边集合由 `WORKFLOW_EDGES` 派生并与 LangGraph 展开一致；线性前缀顺序；`subtitle_cover` 等待 `review_blocks`；`compose_video` 等待 `tts_align` 与 `subtitle_cover`；`compose_video` 为最后执行的业务节点，完成后进入 `END`；每个节点执行一次；节点入参为 `GraphState` 且增量合并进 State；节点失败后下游不执行（下游集合由 `WORKFLOW_EDGES` 派生）；`resolve_nodes` 缺节点或含多余节点时 `build_graph` 拒绝 |
+| `test_builder.py` | `graph.build_graph` 的拓扑与执行语义：`NODE_NAMES` 中的全部 11 个节点注册；边集合由 `WORKFLOW_EDGES` 派生并与 LangGraph 展开一致；线性前缀顺序；`b_environment` 从 `asr_diarize` 之后分叉；`subtitle_cover` 等待 `review_blocks`；`mix_background` 等待 `subtitle_cover` 与 `b_environment`；`compose_video` 等待 `mix_background`；`compose_video` 为最后执行的业务节点，完成后进入 `END`；每个节点执行一次；节点入参为 `GraphState` 且增量合并进 State；节点失败后下游不执行（下游集合由 `WORKFLOW_EDGES` 派生）；`resolve_nodes` 缺节点或含多余节点时 `build_graph` 拒绝 |
 | `test_builder_integration.py` | 不 monkeypatch，真实走 `resolve_nodes → import_module(mocks.*) → StateGraph` 编译链路，验证当前 `mock.toml` 配置下 `NODE_NAMES` 中的全部节点进入图 |
 | `test_node_contracts.py` | 基础版节点与主图的接口契约：基础版节点主函数签名只接受一个参数；基础版节点中直接调用的 `write_artifact` / `artifact_path` / `read_artifact` 的第一个参数若为字符串字面量，必须在 `ARTIFACT_SPECS` 中；非字面量参数以 `UserWarning` 输出，供人工检查；`GraphState` 可只传 `input_video` 构造；`input_video` 可选、默认 `None`、可为 `str`。不检查 Pydantic 校验是否通过、产物类型是否匹配、已登记产物名的语义；别名导入与 `getattr` 动态调用不在静态检查范围 |
 
@@ -69,7 +69,7 @@ uv run pytest tests/graph
     
 +   **registry 增量用例命名**：`test_registry.py` 的增量代理用例使用测试专用节点名 `incremental_probe`，不把真实基础版节点设为增量节点，也不构建图，避免与 8.4 的图接入规则混淆。
     
-+   **当前增量集合**：`graph.incremental.INCREMENTAL_NODE_NAMES` 当前为 `("repair_blocks",)`，`repair_blocks` 经过代理包装；其余基础版节点不经过代理。后续新增增量节点时，需同步 `workflow.md` 第 3 节版本归属列、`NODE_NAMES`、`INCREMENTAL_NODE_NAMES`、`WORKFLOW_EDGES` 和 `mock.toml`。
++   **当前增量集合**：`graph.incremental.INCREMENTAL_NODE_NAMES` 当前为 `("repair_blocks", "b_environment", "mix_background")`，三者经过代理包装；其余基础版节点不经过代理。后续新增增量节点时，需同步 `workflow.md` 第 3 节版本归属列、`NODE_NAMES`、`INCREMENTAL_NODE_NAMES`、`WORKFLOW_EDGES` 和 `mock.toml`。
     
 +   **增量集合类型**：`INCREMENTAL_NODE_NAMES` 为 tuple；测试中 patch 为 `frozenset`，`in` 与 `set()` 运算对两者兼容，不影响断言。
     

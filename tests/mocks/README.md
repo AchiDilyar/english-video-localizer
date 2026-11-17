@@ -1,6 +1,6 @@
 # mocks 测试
 
-维护者：F｜运行：`uv run pytest tests/mocks -q`｜共 80 条
+维护者：F｜运行：`uv run pytest tests/mocks -q`｜共 84 条
 
 ## 环境
 
@@ -21,7 +21,7 @@
 | `test_subtitle_cover.py` | 2 | SRT/ASS 结构与字段数、覆盖重跑 |
 | `test_compose_video.py` | 2 | 成片可解析、ffmpeg 缺失报错 |
 | `test_video_helpers.py` | 4 | 指纹与快照一致、`input_path`、缺文件、指纹比对 |
-| `test_mock_skeleton.py` | 21 | 模块存在、同名函数、参数名为 `state`、`mock.toml` 键集合（节点清单取自 `graph.registry.NODE_NAMES`；`_*` 内部模块不计入） |
+| `test_mock_skeleton.py` | 25 | 模块存在、同名函数、参数名为 `state`、`mock.toml` 键集合（节点清单取自 `graph.registry.NODE_NAMES`；`_*` 内部模块不计入） |
 | `test_end_to_end.py` | 1 | `slow`：patch 全 mock 后经 CLI 跑通，校验全部产物与日志 |
 
 ## 目录约定

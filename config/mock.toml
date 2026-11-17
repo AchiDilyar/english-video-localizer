@@ -3,10 +3,12 @@
 
 probe_input = false
 asr_diarize = false
+b_environment = true
 build_blocks = false
 translate_blocks = false
 review_blocks = false
 repair_blocks = false
 tts_align = false
 subtitle_cover = false
+mix_background = true
 compose_video = false
