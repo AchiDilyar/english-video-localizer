@@ -4,9 +4,10 @@ import logging
 from contextlib import ExitStack
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Literal
 
 from contracts import GraphState
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from subtitle_templates import (
     DEFAULT_LAYOUT,
     DEFAULT_STYLE,
@@ -31,6 +32,18 @@ class SubtitleCoverOptions(BaseModel):
     style: str = DEFAULT_STYLE
     layout: str = DEFAULT_LAYOUT
     fade_enabled: bool = False
+    timing_source: Literal['source','speech'] = 'source'
+    speech_model_dir: str = 'models/faster-whisper-small'
+    paginate: bool = False
+    semantic_pairing: bool = False
+    strict_single_line: bool = False
+    display_font_path: str | None = None
+
+    @model_validator(mode='after')
+    def validate_single_line_mode(self):
+        if self.strict_single_line and not self.paginate:
+            raise ValueError('strict_single_line requires paginate=true; cannot bypass the width gate')
+        return self
 
     @field_validator("style")
     @classmethod
@@ -73,6 +86,8 @@ def _write_tracks(tracks: dict[str, str]) -> None:
 
 def subtitle_cover(state: GraphState) -> dict:
     """Write SRT and ASS using the transcription, reviewed subtitles and probed dimensions."""
+    if state.repaired_blocks:
+        state=state.model_copy(update={'reviewed_blocks':state.repaired_blocks})
     segments = state.segments
     reviewed = state.reviewed_blocks
     if not segments or not reviewed:
@@ -99,8 +114,26 @@ def subtitle_cover(state: GraphState) -> dict:
         raise ValueError("字幕压制准备需要视频探测结果中的画面尺寸。")
     video = state.media_info.video_info
     options = SubtitleCoverOptions.model_validate(load_config("subtitle_cover.toml"))
+    if options.timing_source=='speech':
+        from .speech_subtitles import render_speech_subtitles
+        root=Path(__file__).resolve().parents[2]
+        model=Path(options.speech_model_dir)
+        return render_speech_subtitles(state,options,model if model.is_absolute() else root/model)
     tracks: dict[str, list[str]] = {"english_srt": [], "chinese_srt": [], "bilingual_srt": []}
     dialogue = []
+    width,height=load_compose_options().output_size(video.width,video.height)
+    from .dubbing_timing import forward_windows
+    limits = forward_windows(segments, state.media_info.duration_ms)
+    clips = {clip.segment_id: clip for clip in state.tts_clips or []}
+    if options.paginate:
+        from .speech_subtitles import render_cue_tracks
+        rows=[]
+        for segment in sorted(segments,key=lambda item:item.start_ms):
+            end=segment.end_ms;clip=clips.get(segment.segment_id)
+            if clip and clip.duration_ms>0:end=min(limits[segment.segment_id][1],max(end,segment.start_ms+clip.duration_ms))
+            rows.append({'cue_id':segment.segment_id,'start_ms':segment.start_ms,'end_ms':end,
+                         'zh':by_id[segment.segment_id],'en':segment.text_en,'source_segment_ids':[segment.segment_id]})
+        return render_cue_tracks(state,options,rows)
     for number, segment in enumerate(sorted(segments, key=lambda item: item.start_ms), start=1):
         if segment.end_ms > state.media_info.duration_ms:
             raise ValueError(f"{segment.segment_id} 的字幕结束时间超出视频时长。")
@@ -113,14 +146,18 @@ def subtitle_cover(state: GraphState) -> dict:
         if not english or not chinese:
             raise ValueError(f"{segment.segment_id} 的原文或审校译文为空。")
 
-        start, end = _timestamp(segment.start_ms), _timestamp(segment.end_ms)
+        display_end = segment.end_ms
+        clip = clips.get(segment.segment_id)
+        if clip and clip.duration_ms > 0:
+            display_end = min(limits[segment.segment_id][1], max(display_end, segment.start_ms + clip.duration_ms))
+        start, end = _timestamp(segment.start_ms), _timestamp(display_end)
         header = f"{number}\n{start} --> {end}\n"
         tracks["english_srt"].append(header + english)
         tracks["chinese_srt"].append(header + chinese)
         tracks["bilingual_srt"].append(f"{header}{chinese}\n{english}")
-        ass_start, ass_end = ass_times(segment.start_ms, segment.end_ms)
+        ass_start, ass_end = ass_times(segment.start_ms, display_end)
         dialogue.append(ass_dialogue(
-            ass_start, ass_end, chinese, english, options.layout, fade_enabled=options.fade_enabled,
+            ass_start, ass_end, chinese, english, options.layout, fade_enabled=options.fade_enabled,render_height=height,
         ))
 
     outputs = {name: "\n\n".join(cues) + "\n" for name, cues in tracks.items()}

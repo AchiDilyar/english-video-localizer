@@ -45,6 +45,16 @@ class _FakeGraph:
         return {}
 
 
+def test_youtube_url_is_downloaded_before_graph(work_dir,fake_graph,monkeypatch):
+    def prepare(url,folder):
+        assert url=='https://youtu.be/BaW_jenozKc'
+        target=Path(folder)/'input.mp4';target.write_bytes(b'adapter-test')
+        return target.name
+    monkeypatch.setattr('nodes.probe_input.youtube.prepare_youtube_input',prepare)
+    cli.main(['--work-dir',str(work_dir),'--input','https://youtu.be/BaW_jenozKc'])
+    assert fake_graph.calls[0].input_video=='input.mp4'
+
+
 @pytest.fixture(autouse=True)
 def _restore_logging():
     """抵消 setup_logging 对 root logger 的修改，避免污染 pytest。"""
@@ -131,6 +141,16 @@ def test_workflow_without_final_video(work_dir, fake_graph, capsys):
     assert fake_graph.calls[0].input_video == "input.mp4"
 
 
+def test_optional_bcde_graph_factory_preserves_standard_cli(work_dir,fake_graph):
+    (work_dir/'input.mp4').touch();alternate=_FakeGraph()
+    assert cli.main(['--work-dir',str(work_dir)],graph_factory=lambda:alternate)==0
+    assert len(alternate.calls)==1 and fake_graph.calls==[]
+    actual_dirs = {p.name for p in work_dir.iterdir() if p.is_dir()}
+    assert _EXPECTED_SUBDIRS <= actual_dirs
+    assert (work_dir / "logs" / "run.log").exists()
+    assert alternate.calls[0].input_video == "input.mp4"
+
+
 def test_reports_existing_final_video(work_dir, fake_graph, capsys, monkeypatch):
     (work_dir / "input.mp4").touch()
 
@@ -190,7 +210,9 @@ def test_run_input_command_default_input(work_dir):
     # 显式指定 UTF-8 并强制子进程以 UTF-8 输出，errors="replace" 兜底防止线程再死。
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     result = subprocess.run(
-        ["uv", "run", "run-input", "--work-dir", str(work_dir)],
+        # This startup-only test uses the prepared environment; dependency
+        # downloads must not masquerade as validation of missing input handling.
+        ["uv", "run", "--no-sync", "run-input", "--work-dir", str(work_dir)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,

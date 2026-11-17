@@ -171,6 +171,16 @@ def test_invalid_overrides_raises():
         tts_align.build_voice_plan({"overrides": ["spk_1"]})
 
 
+@requires_ffmpeg
+def test_excessive_required_speed_requests_shorter_translation(work_dir,plan,monkeypatch):
+    monkeypatch.setattr(tts_align,'load_voice_plan',lambda:plan)
+    monkeypatch.setattr(tts_align,'synthesize_clip',fake_synthesize)
+    state=GraphState(segments=[make_segment('seg_0001','spk_1',0,200)],
+                     reviewed_blocks=[make_reviewed('seg_0001','这句话长到无法正常读完')])
+    with pytest.raises(ValueError,match='TTS_TEXT_TOO_LONG'):
+        tts_align.tts_align(state)
+
+
 def test_invalid_sample_rate_raises():
     with pytest.raises(ValueError):
         tts_align.build_voice_plan({"sample_rate": 0})
@@ -234,6 +244,23 @@ def test_short_clip_is_padded_to_window(work_dir):
 
 
 @requires_ffmpeg
+def test_limited_slowing_stretches_real_pcm_without_changing_pitch(work_dir):
+    import json
+    import numpy as np
+    src=work_dir/'tts/slow-source.wav';dst=work_dir/'tts/slow-target.wav'
+    write_tone(src,1.8)
+    tts_align.fit_to_window(src,dst,2100,SAMPLE_RATE,min_speed=.85,max_speedup=1.35)
+    data=json.loads(dst.with_suffix('.speed.json').read_text())
+    assert .85<=data['tempo']<1 and data['measured_stretched_audio_ms']>1950
+    assert data['trailing_padding_ms']<150
+    with wave.open(str(src),'rb') as f:before=np.frombuffer(f.readframes(f.getnframes()),dtype='<i2')
+    with wave.open(str(dst),'rb') as f:after=np.frombuffer(f.readframes(f.getnframes()),dtype='<i2')
+    # The same sinusoidal pitch survives the independent time stretch.
+    peak=lambda x:np.fft.rfftfreq(len(x),1/SAMPLE_RATE)[np.argmax(abs(np.fft.rfft(x)))]
+    assert peak(after)==pytest.approx(peak(before),abs=3)
+
+
+@requires_ffmpeg
 def test_clip_that_fits_is_not_speed_capped(work_dir):
     src = work_dir / "tts" / "src.wav"
     dst = work_dir / "tts" / "dst.wav"
@@ -246,14 +273,14 @@ def test_clip_that_fits_is_not_speed_capped(work_dir):
 
 
 @requires_ffmpeg
-def test_overlong_clip_is_capped_then_trimmed(work_dir):
+def test_overlong_clip_is_proportionally_sped_without_trimming(work_dir):
     src = work_dir / "tts" / "src.wav"
     dst = work_dir / "tts" / "dst.wav"
     write_tone(src, 5.0)
 
     trimmed = tts_align.fit_to_window(src, dst, 2000, SAMPLE_RATE)
 
-    assert trimmed is True
+    assert trimmed is False
     # 音轨必须填满时间窗，不能因为超时就留白
     assert tts_align.wav_duration_ms(dst) == pytest.approx(2000, abs=2)
 
@@ -261,6 +288,25 @@ def test_overlong_clip_is_capped_then_trimmed(work_dir):
 def test_zero_window_raises(work_dir):
     with pytest.raises(ValueError):
         tts_align.fit_to_window(work_dir / "tts" / "x.wav", work_dir / "tts" / "y.wav", 0, SAMPLE_RATE)
+
+
+@requires_ffmpeg
+def test_speedup_preserves_sound_only_at_source_tail(work_dir):
+    import struct
+    src, dst = work_dir/'tts/tail.wav', work_dir/'tts/tail-fit.wav'
+    write_tone(src,5.0)
+    with wave.open(str(src),'rb') as handle:
+        params=handle.getparams()
+        frames=handle.readframes(handle.getnframes())
+    silence_bytes=int(4.5*SAMPLE_RATE)*2
+    with wave.open(str(src),'wb') as handle:
+        handle.setparams(params)
+        handle.writeframes(bytes(silence_bytes)+frames[silence_bytes:])
+    assert tts_align.fit_to_window(src,dst,2000,SAMPLE_RATE) is False
+    with wave.open(str(dst),'rb') as handle:
+        result=handle.readframes(handle.getnframes())
+    samples=struct.unpack('<'+'h'*(len(result)//2),result)
+    assert max(abs(value) for value in samples[int(len(samples)*.70):])>100
 
 
 # ---------------------------------------------------------------------------

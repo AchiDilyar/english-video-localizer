@@ -141,6 +141,7 @@ def test_subtitle_cover_waits_for_review(monkeypatch):
     assert calls.index("subtitle_cover") > calls.index("review_blocks"), (
         f"subtitle_cover 应在 review_blocks 之后；实际: {calls}"
     )
+    assert calls.index('subtitle_cover') > calls.index('tts_align')
 
 
 def test_compose_video_waits_for_tts_and_subtitle(monkeypatch):

@@ -587,6 +587,9 @@ b-asr = [
 b-legacy = [
     { name = "sherpa-onnx" },
 ]
+sound-events = [
+    { name = "onnxruntime" },
+]
 speech = [
     { name = "dashscope" },
     { name = "faster-whisper" },
@@ -621,6 +624,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3,<4" },
     { name = "numpy", marker = "extra == 'b-asr'", specifier = ">=1.26,<3" },
     { name = "numpy", marker = "extra == 'speech'", specifier = ">=1.26,<3" },
+    { name = "onnxruntime", marker = "extra == 'sound-events'", specifier = ">=1.23,<2" },
     { name = "pillow", specifier = ">=11,<14" },
     { name = "pyannote-audio", marker = "extra == 'speech'", specifier = ">=4,<5" },
     { name = "pydantic", specifier = ">=2.11,<3" },
@@ -632,7 +636,7 @@ requires-dist = [
     { name = "yt-dlp", marker = "extra == 'b-asr'", specifier = ">=2026.10.26" },
     { name = "yt-dlp-ejs", marker = "extra == 'b-asr'", specifier = ">=0.8,<1" },
 ]
-provides-extras = ["speech", "b-asr", "b-legacy", "tts"]
+provides-extras = ["speech", "b-asr", "b-legacy", "tts", "sound-events"]
 
 [package.metadata.requires-dev]
 dev = [

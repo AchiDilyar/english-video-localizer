@@ -26,7 +26,7 @@
         "en"
       ],
       "margin_y": {
-        "zh": 165,
+        "zh": 235,
         "en": 70
       },
       "font": "MiSans Medium"
@@ -39,7 +39,7 @@
       ],
       "margin_y": {
         "zh": 60,
-        "en": 180
+        "en": 270
       },
       "font": "MiSans"
     }

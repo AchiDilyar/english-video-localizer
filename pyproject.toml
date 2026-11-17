@@ -37,6 +37,9 @@ b-legacy = [
 tts = [
     "dashscope>=2.0.1,<3",
 ]
+sound-events = [
+    "onnxruntime>=1.23,<2",
+]
 
 [dependency-groups]
 dev = ["imageio-ffmpeg>=0.8,<1", "pytest>=8,<10", "ruff>=0.14,<1"]
@@ -47,6 +50,7 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 run-input = "cli:main"
+download-video = "nodes.probe_input.youtube:main"
 
 [tool.setuptools]
 py-modules = ["cli", "subtitle_templates"]
@@ -71,6 +75,7 @@ include = [
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 testpaths = ["tests"]
 pythonpath = ["project"]
 markers = [

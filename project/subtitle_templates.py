@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import textwrap
 from pathlib import Path
 
 CATALOG = json.loads(
@@ -68,15 +69,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def ass_dialogue(start, end, zh, en, layout_id, *, fade_enabled: bool = False):
+def ass_dialogue(start, end, zh, en, layout_id, *, fade_enabled: bool = False, render_height=2160, wrap_english=False, wrap_chinese=False,font_sizes=None):
+    if wrap_chinese:
+        zh='\n'.join('\n'.join(textwrap.wrap(line,width=24,break_on_hyphens=False))
+                     for line in zh.splitlines())
+    if wrap_english:
+        # Display-only line breaks. Never rewrite the exported English text.
+        en='\n'.join('\n'.join(textwrap.wrap(line,width=64,break_long_words=False,
+                    break_on_hyphens=False)) for line in en.splitlines())
     texts = {
         lang: r"\N".join(text.translate(_LITERAL).splitlines())
         for lang, text in (("zh", zh), ("en", en))
     }
     fade_tag = r"{\fad(120,120)}" if fade_enabled else ""
+    layout=LAYOUTS[layout_id]
+    upper_margin={}
+    if len(layout['lines'])==2:
+        upper,lower=layout['lines']
+        lower_lines=max(1,texts[lower].count(r'\N')+1)
+        if lower_lines>1:
+            # Lower bottom-anchored text grows upward. Reserve its whole block.
+            scale=reference_height(render_height)/GEOMETRY['height']
+            upper_margin[upper]=round((layout['margin_y'][upper]+
+                (lower_lines-1)*GEOMETRY[f'{lower}_size']*1.35)*scale)
     return "\n".join(
-        f"Dialogue: {layer},{start},{end},{lang.upper()},,0,0,0,,"
-        f"{fade_tag}{texts[lang]}"
+        f"Dialogue: {layer},{start},{end},{lang.upper()},,0,0,{upper_margin.get(lang,0)},,"
+        f"{fade_tag}"+(r'{\fs'+str(font_sizes[lang])+'}' if font_sizes else '')+texts[lang]
         for lang, layer in (("zh", 2), ("en", 1))
         if lang in LAYOUTS[layout_id]["lines"]
     )
@@ -114,6 +132,7 @@ def main():
                 sample = ass_dialogue(
                     "0:00:00.00", "0:00:04.00", "让知识跨越语言。",
                     "Let knowledge cross languages.", layout,
+                    render_height=height,
                 )
                 path.write_text(header + sample + "\n", encoding="utf-8")
     print(f"已生成 {len(STYLES) * len(LAYOUTS) * len(RESOLUTIONS)} 份 ASS 样张：{args.output}")

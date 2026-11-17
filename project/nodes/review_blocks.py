@@ -5,13 +5,14 @@ from utils.io import write_artifact
 
 from .translate_blocks import _text_model
 from .translate_blocks._options import with_style
+from .translate_blocks._duration_budget import budgets_for, RULES
 
 REVIEW_PROMPT = (
     "对照英文和术语表逐条核对用于显示和朗读的中文译文。"
     "修正错漏译、术语不一致、数字单位、否定和条件错误。"
     "译文应自然简洁并保留原义，参考 duration_ms。"
     "未发现问题时保留该条译文。返回审校后的完整中文译文。"
-) + _text_model.SUBTITLE_PUNCTUATION_RULES
+) + _text_model.SUBTITLE_PUNCTUATION_RULES + RULES
 
 
 def review_blocks(state: GraphState) -> dict:
@@ -19,6 +20,7 @@ def review_blocks(state: GraphState) -> dict:
     by_id, drafts, grouped = _text_model.group_translations(state.segments, state.translated_blocks, "审校")
 
     instruction = with_style(REVIEW_PROMPT)
+    budgets = budgets_for(state)
     reviewed: dict[str, TranslatedSegment] = {}
     for block_id, block_drafts in grouped.items():
         response = _text_model.request_json(
@@ -26,7 +28,7 @@ def review_blocks(state: GraphState) -> dict:
             payload={
                 "terminology": state.terminology or {},
                 "segments": [
-                    _text_model.translation_fields(by_id[draft.segment_id], draft)
+                    {**_text_model.translation_fields(by_id[draft.segment_id], draft), **budgets[draft.segment_id]}
                     for draft in block_drafts
                 ],
             },

@@ -35,7 +35,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="run-input")
     parser.add_argument("--work-dir", default=".", help="工作目录，必须已存在")
     parser.add_argument(
-        "--input", default="input.mp4", help="工作目录根目录下的输入视频文件名"
+        "--input", default="input.mp4", help="本地输入文件名或单条YouTube视频链接"
     )
     return parser.parse_args(argv)
 
@@ -60,18 +60,21 @@ def _create_subdirs(work_dir: Path) -> None:
         (work_dir / name).mkdir(parents=True, exist_ok=True)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, graph_factory=None) -> int:
     args = _parse_args(argv)
     work_dir = Path(args.work_dir).resolve()
     try:
         _check_work_dir(work_dir)
         set_work_dir(str(work_dir))
+        if args.input.startswith(('https://','http://')):
+            from nodes.probe_input.youtube import prepare_youtube_input
+            args.input=prepare_youtube_input(args.input,work_dir)
         _check_input_video(args.input)
         _create_subdirs(work_dir)
         setup_logging(str(work_dir / "logs" / "run.log"))
 
         initial_state = GraphState(input_video=args.input)
-        build_graph().invoke(initial_state)
+        (graph_factory or build_graph)().invoke(initial_state)
 
         final_video = Path(artifact_path("final_video"))
         if final_video.is_file() and final_video.stat().st_size > 0:

@@ -5,12 +5,13 @@ from utils.io import write_artifact
 
 from . import _text_model
 from ._options import with_style
+from ._duration_budget import budgets_for, RULES
 
 TRANSLATE_PROMPT = (
     "将每个英文片段翻译成简体中文，遵循术语表，结合本块上下文理解语义。"
     "zh_subtitle 同时用于屏幕阅读和朗读。"
     "参考 duration_ms 精简译文，保留数字、单位、否定和成立条件。"
-) + _text_model.SUBTITLE_PUNCTUATION_RULES
+) + _text_model.SUBTITLE_PUNCTUATION_RULES + RULES
 
 
 def translate_blocks(state: GraphState) -> dict:
@@ -28,12 +29,13 @@ def translate_blocks(state: GraphState) -> dict:
 
     instruction = with_style(TRANSLATE_PROMPT)
     drafts: list[TranslatedSegment] = []
+    budgets=budgets_for(state)
     for block in blocks:
         response = _text_model.request_json(
             instruction=instruction,
             payload={
                 "terminology": state.terminology or {},
-                "segments": [_text_model.source_fields(by_id[key]) for key in block.segment_ids],
+                "segments": [_text_model.source_fields(by_id[key],budgets[key]) for key in block.segment_ids],
             },
         )
         drafts.extend(_text_model.validate_items(response, block.block_id, block.segment_ids))

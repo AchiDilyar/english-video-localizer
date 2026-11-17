@@ -96,7 +96,9 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
             assert row["duration_ms"] == 5_000
             return {"items": [item(segment_id, "这种方法有效。")]}
         assert row["zh_subtitle"] == "这种方法有效。"
-        assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle"}
+        assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle",
+                            "available_duration_ms", "target_zh_chars", "target_zh_chars_per_second"}
+        assert row['target_zh_chars'] >= 1
         return {"items": [item(segment_id, "只有样本量至少为 12 时才有效。")]}
 
     monkeypatch.setattr(_text_model, "request_json", answer)
@@ -152,6 +154,7 @@ def test_review_rejects_an_incomplete_response(source_state, monkeypatch):
 
 @pytest.mark.parametrize("config_location", ["environment", "installed"])
 def test_request_uses_the_node_local_deepseek_adapter(monkeypatch, tmp_path, config_location):
+    monkeypatch.setenv('DEEPSEEK_TRANSPORT', 'api')
     if config_location == "installed":
         package = tmp_path / "venv/Lib/site-packages/nodes/translate_blocks/_text_model.py"
         monkeypatch.setattr(_text_model, "__file__", str(package))

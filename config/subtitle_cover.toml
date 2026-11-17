@@ -3,3 +3,8 @@ layout = "zh_top"
 style = "clean"
 # 开启后淡入和淡出各 120 毫秒。
 fade_enabled = false
+timing_source = "speech"
+speech_model_dir = "models/faster-whisper-small"
+paginate = true
+semantic_pairing = true
+strict_single_line = true

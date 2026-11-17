@@ -25,7 +25,7 @@ class AudioRecheckTests(unittest.TestCase):
                 'speaker_id':None,'review_status':'automatic_checks_passed','review_issues':[]}],
                 'review':{'untimed_utterances':[]},'execution':{'transcribe_calls':1}}
 
-    def run_case(self,second=None,start_ms=None):
+    def run_case(self,second=None,start_ms=None,strict_errors=False):
         table=self.table()
         if start_ms is not None:table['sentences'][0]['start_ms']=start_ms
         before=copy.deepcopy(table)
@@ -41,7 +41,7 @@ class AudioRecheckTests(unittest.TestCase):
             path=Path(directory)/'audio.wav'
             with wave.open(str(path),'wb') as w:
                 w.setnchannels(1);w.setsampwidth(2);w.setframerate(16000);w.writeframes(bytes(320000))
-            result=recheck_table(table,path,Model(),self.nlp)
+            result=recheck_table(table,path,Model(),self.nlp,strict_errors=strict_errors)
         self.assertEqual(table,before)
         return result
 
@@ -68,3 +68,13 @@ class AudioRecheckTests(unittest.TestCase):
         result=self.run_case(start_ms=1300)
         self.assertEqual(result['sentences'][0]['en'],'We use the computer.')
         self.assertEqual(result['sentences'][0]['start_ms'],1000)
+
+    def test_unsafe_untimed_proposal_retains_original_even_in_strict_mode(self):
+        from unittest.mock import patch
+        with patch('nodes.asr_diarize.pipeline.audio_recheck.sentences_from_words',
+                   return_value=([],{'untimed_utterances':[{'en':'computer.'}]})):
+            result=self.run_case(strict_errors=True)
+        self.assertEqual(result['sentences'][0]['en'],'We use the')
+        self.assertEqual(result['review']['audio_recheck']['provisional_repairs'],0)
+        self.assertEqual(result['review']['audio_recheck']['records'][0]['status'],
+                         'manual_review_unsafe_repair_rejected')

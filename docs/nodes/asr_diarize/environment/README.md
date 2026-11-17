@@ -31,6 +31,12 @@ uv sync --locked --extra b-asr --extra speech
 
 ## 本地工具与权重
 
+### 学校 DeepSeek 工具对接（本地可选）
+
+C 的翻译/审校现在可通过本机 `.env` 设置 `DEEPSEEK_TRANSPORT=school_bridge`、`DEEPSEEK_BRIDGE_DIR=tests/tmp/school-deepseek-bridge`，无需官方 API key。程序导出带摘要名称的 `.request.json`；操作者在获准外发后通过学校工具处理，保存同名 `.response.json`，再继续执行。响应复用绑定完整请求内容；修改提示或数据会产生新请求，不自动调用或重试外部模型。
+
+这是文件交换接口，不能使普通终端直接访问 Codex 的学校工具。学校工具仍需由 Codex 协助调用，费用和额度未知。仅允许发送获准的公开最小文本；不上传凭据、团队代码、音视频或未授权材料。请求和响应目录须保持在 Git 忽略的本地工作区。默认 `api` 路径保留，配音服务仍单独需要 DASHSCOPE_API_KEY。本次仅本地修改，未推送。
+
 - FFmpeg/ffprobe：放在 PATH 或仓库 .tools/ffmpeg/bin。多音轨选择见 config/probe_input.toml。
 - Whisper：本地模型默认 models/faster-whisper-base.en，可通过 config/asr_diarize.toml 修改。
 - Community-1：使用者本人接受 Hugging Face 模型条件后准备权重，默认缓存 models/community-1-hf-cache；节点运行时只读取本地权重，不自动下载或上传音频。

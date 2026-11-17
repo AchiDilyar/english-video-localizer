@@ -1,94 +1,45 @@
-# tts_align 节点说明
+# tts_align：当前本地说明
 
-`workflow.md` 第 3 节的 `tts_align`，负责 D 角色的配音与同步。
+当前实现基于2026-11-14实验；2026-11-17在最新main基础上合并后以独立审核分支交付，不代表F已合并或完成人工质量验收。
 
-**职责**：按说话人音色合成中文口播音频，测时长并对齐原时间窗，组装整条中文配音音轨。
+## 语速与翻译预算
 
-## 输入与输出
+合成模型rate固定1.0，不与后期放慢叠加。后处理分别限制：min_speed=0.95、max_speedup=1.35。实测仍偏短时，优先完整表达英文已有含义，不增加事实、例子或重复语气词来凑时长；过长则局部精简。最多两次语义返工，恢复任务不重置次数；语义角色检查不替代人工验收。
 
-| 方向 | 内容 |
-|---|---|
-| 读 `state.reviewed_blocks` | 取 `zh_subtitle` 作为合成文本，**全程不使用 `zh_dub`** |
-| 读 `state.segments` | 按 `segment_id` 取 `start_ms` / `end_ms` / `speaker_id` |
-| 写 `tts/<segment_id>.wav` | 逐段中文配音音频，文件名即 `TTSClip.audio_path` |
-| 写 `tts/clips.json` | 分段音频清单，`list[TTSClip]` |
-| 写 `audio/dub.wav` | 组装后的整条中文配音音轨 |
-| 返回增量 | `{"tts_clips": [...]}` |
+min_speech_fill_ratio=0.98，允许250ms测时余量。比较原说话组跨度，不强占片尾空白；不足1秒的简短应答不强制扩写。变速后再次测量，speed回执分别记录tempo、有效音频长度、停顿分配及尾部补白，不用总WAV长度冒充完整语音。少量余量可分配到已有40–400ms短停顿，每处最多新增300ms，不加长既有长停顿，不删除语音采样。
 
-节点签名与失败行为遵循 `architecture.md` 第 3 节与第 8 节：内部异常直接抛出，图终止，不捕获、不降级。
+此前0.85后处理、0.65模型rate及“短音频仅警告继续”策略已停用。旧实验仅保留在被忽略的tests/tmp，不覆盖历史结果。
 
-## 配置
+默认short_duration_policy=error。显式使用warn的实验仍先进行有次数上限的语义返工：不合格稿不得合成；穷尽忠实扩写后，比较原稿与最近已审校通过稿的实测时长，只保留能够按0.95–1.35倍安排、且更接近目标的版本，并记录shortfall_warning。不能因为次数用尽而丢弃已经通过审校的有效改进，也不能采用被拒稿或静默突破变速边界。本轮35分钟测试在独立工作目录显式使用此警告策略，仓库默认严格策略不变。
 
-配置在 `config/tts.toml`，由 D 维护。音色映射是配置项（`workflow.md` 第 3 节），改配置不需要改代码。
+## 分组、时间与字幕
 
-| 键 | 说明 |
-|---|---|
-| `model` | 合成模型标识，原样写入 `TTSClip.model` |
-| `sample_rate` | 逐段音频与 `dub.wav` 的采样率，默认 24000（CosyVoice 原生） |
-| `voices` | 音色池，按说话人首次出现顺序依次分配 |
-| `unknown_speaker` | 未知说话人的 `speaker_id`，默认 `spk_unknown`；该值固定用 `fallback_voice` |
-| `fallback_voice` | `unknown_speaker` 固定使用的音色，不占音色池名额 |
-| `[overrides]` | 手工指定 `speaker_id -> voice_id`，优先级最高 |
+natural_groups=true：同说话人、间隔不超过800ms、合并跨度不超过12秒的源句可合组；单条长源句保留，不跨说话人。这是启发式，非人工语义标注。原开始时间为下限，只向后顺延，最多500ms；可利用下一句之前空档，不重叠、不提前、不越过片尾，完整变速后测量，拒绝裁语音句尾。
 
-### 为什么用"音色池 + 手工覆盖"而不是逐个 speaker_id 写死
+连续PCM按原边界分装成TTSClip以兼容接口，不重新起腔或插入淡入淡出。TTSClip.text保留源片段审校文本供追踪，不保证是切片逐字实录；实际组稿见dubbing_script.json。依赖精确逐段文本对应的下游需与F/D确认。
 
-B 的长视频验证出现过"14 个模型声音组不等于人工确认的 14 个真人"的情况。若 pyannote 把一个人拆成两个 `speaker_id`，逐个写死的映射会给同一个人配两个音色，直接影响"同一人音色一致性"验收。
+中文音轨完成后才生成字幕。英文只取B的Segment.text_en，禁止回译、改词、遗漏或调序。中文取实际配音稿，按最终音轨本地ASR定位；低匹配组局部识别或经PCM核对补齐并写警告，不冒称逐词人工对齐。中文上、英文下居中，英文优先单行，显示分页独立于配音组。
 
-- **音色池**保证任意数量的说话人都能自动拿到音色，双人素材天然是两种音色；
-- **`[overrides]`** 让人工回听确认后，把过分割的两个 ID 指到同一音色即可合并，不用改代码；
-- **`spk_unknown`** 走独立兜底音色，不占用音色池，避免"为了接口非空随意指派某个人"，且实际用的音色如实写入 `TTSClip.voice_id`，可事后审计。
+## 音色和表达
 
-## 时长对齐
+当前cosyvoice-v3-flash、新加坡ap-southeast-1、voice_mode=cloned。voice_profiles.json绑定源摘要、模型和地域，不匹配则失败。两份18秒复刻参考已核对来自同一英文原片；“已授权”是许可标记，不是预设音色。继承子片音色须验证父源摘要、PCM格式及逐字节片段一致。
 
-1. 合成音频实测时长；
-2. 短于时间窗 → 尾部补静音；
-3. 超时 → `atempo` 加速，上限 **1.15 倍**；
-4. 加速后仍超时 → 裁剪到时间窗，并写 `WARNING` 日志列出被裁剪的片段。
+source_expression=true记录本地原声声学指标，当前指令保持参考声个人特征、自然交谈，不再强制沉稳舒缓或强调。服务接收音色ID、中文稿、instruction和语言提示，不把逐句原声伪称为WebSocket直接prompt。相似度、自然度或情绪仍须回听；指令、语言和rate纳入缓存。密钥只在本机.env，学校DeepSeek文本工具不能把音频路径当作已分析原声。
 
-`workflow.md` 第 5 节明确"配音超时退回"不在基本版范围，因此本节点**不实现返工分支**，也不新增任何状态字段。超时信息目前只通过日志留痕；若后续要把"哪一段需要重写"传回主图，必须走 `CHANGELOG.md` 流程加契约字段。
+## 背景音与产物
 
-## 音轨组装
+dub.wav保留纯中文供字幕使用，原片经本地Demucs去人声后混入mixed.wav。compose_video校验源视频、配音、混音摘要后使用，旧混音不匹配则失败。入口和局限见 [成片音轨说明](../compose_video/README.md)。
 
-`dub.wav` 采用"静音填充 + 按 `start_ms` 顺序拼接"，而不是 `adelay` + `amix`：
+读取segments、reviewed_blocks、媒体信息，返回tts_clips，不新增共享State字段。组稿、真实原始音频、timing、alignment_report、speed回执归入tts；识别结果及待回听警告归入subtitles。主流程和测试用uv run --locked，依赖由pyproject.toml与uv.lock维护。分离worker复用既有GPU环境经uv启动，实际版本另记，不误称与主环境相同。
 
-- 复杂度 O(n)，长视频（数百段）不会因为同时打开大量输入而耗尽资源；
-- 每段都已被裁剪到恰好等于时间窗长度，因此摆位是精确的；
-- 段与段重叠时后一段覆盖前一段的重叠部分并记录 `WARNING`。B 生成的 `segments` 实测不重叠。
+## 最新验证
 
-## 目录职责
+2026-11-14整片重新配音：35分09.566秒，638条原文、300组新加坡原声复刻合成，模型rate全部1.0，实际后处理0.95–1.35倍，最大向后顺延500ms，无裁语音尾部。字幕在配音后生成559屏，中上英下各一行，0越界，英文内容和顺序完整保留。43项配音相关回归测试通过，成片九处抽样音轨与最终混音相关系数均大于0.98；自然度和口型仍待人工验收。9组忠实短稿留白、29屏少于0.5秒另列复听提示。B/C复用同源真实结果，D全片重新合成，E重新对齐、混音和编码；不称为全新ASR/翻译测试。
 
-节点**不创建任何目录**（`dataflow.md` 第 4 节），`tts/`、`audio/` 由 CLI 初始化时创建。节点只在系统临时目录放合成中转文件，返回前清理。
+本轮用户取消旧额度限制，独立记录10959个字符提交尝试、97次学校工具调用、0次新音色注册，实际账单未知。Codex主执行并修订后段音稿，DeepSeek辅助局部修订和语义审校；第137组时间范围误译由Codex独立纠正，模型认可不等于正确。复现、失败记录、检查和成片见本机tests/tmp/long35-fresh-dub-20261114/。该历史成片和报告通过Release分发，源码在独立审核分支，未直接改写main。
 
-## 外部工具
+五分钟：61条源句、32组原声复刻，模型rate全部1.0，后处理0.95–1.307214倍，尾部补白最多116ms，没有裁尾；83条显示片，英文原文完整保留，中英文严格各一行，无换行或越界例外。成片包含立体声去人声背景。B/C复用同源缓存，其余真实运行；音色、语义和精确口型仍需人工验收。
 
-FFmpeg 按 `architecture.md` 第 11 节查找，与 `mocks/compose_video.py` 保持一致：
+此前五分钟阶段累计14928/20000个TTS字符、65/80次学校调用、2/2次音色注册，费用未知。该阶段的复现、失败与检查保留在本机tests/tmp/five-minute-background-20261114/。这是历史基准，旧35分钟成片也保留；本轮全片重新配音结果以上文独立记录为准。
 
-1. 仓库根 `.tools/ffmpeg/bin/ffmpeg.exe`（该分支仅 Windows 有效）；
-2. 系统 `PATH`。
-
-两处都找不到时抛 `FileNotFoundError`，按节点失败处理，不静默降级。
-
-## 测试
-
-```bash
-uv run --locked pytest tests/nodes/tts_align
-```
-
-23 项，覆盖音色映射（首次出现顺序、同一说话人一致、`spk_unknown` 兜底、override 优先、音色池复用、非法配置）、FFmpeg 查找（`.tools` 优先、回退 `PATH`、都缺失时抛异常）、时长对齐（补静音、无需变速、超时裁剪、零时间窗）、节点整体行为（三个产物落盘、`clips.json` 通过契约校验、`dub.wav` 首段之前为静音、只用 `zh_subtitle`、空输入返回空增量、缺 `segments` 与错位 `segment_id` 抛异常）。
-
-测试用假合成器替代真实 TTS，**不需要 `DASHSCOPE_API_KEY`**；需要 `ffmpeg`（放到 `.tools/ffmpeg/bin/` 或加入 `PATH`），缺失时自动跳过依赖 ffmpeg 的用例。
-
-## 接入真实 TTS
-
-`project/nodes/tts_align.py` 的 `synthesize_clip()` 调用 DashScope CosyVoice：
-
-1. `.env` 中配置 `DASHSCOPE_API_KEY`（见 `.env.example`）；
-2. `uv sync --locked --extra speech` 安装 `dashscope`；
-3. F 在 `config/mock.toml` 把 `tts_align` 改为 `false`。
-
-**当前状态**：真实合成调用尚未用密钥验证，需要一次带凭据的双人短片实测确认音色一致性与实际时长分布。
-
-## 待确认
-
-- `dub.wav` 采样率定为 24000Hz 单声道，需与 E 的 `compose_video` 对齐；E 若要求其它规格，改 `config/tts.toml` 的 `sample_rate` 即可。
-- 未知说话人的最终表示（`spk_unknown` 是否为合法 `speaker_id`）仍挂在 `docs/design/increments/README.md` 的"待解决的契约问题"，需与 F、B 共同确认。本节点已按"允许 `spk_unknown`"实现，不依赖该结论也能工作。
+参考：[CosyVoice参数](https://www.alibabacloud.com/help/en/model-studio/cosyvoice-client-events)、[音色创建与更新](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/voice-cloning-user-guide)。

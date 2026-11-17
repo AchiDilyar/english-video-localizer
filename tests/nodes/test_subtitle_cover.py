@@ -10,9 +10,27 @@ from utils import paths
 @pytest.fixture
 def subtitle_job(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "_work_dir", tmp_path)
+    monkeypatch.setattr('nodes.subtitle_cover.load_config',lambda _: {'timing_source':'source'})
     output = tmp_path / "subtitles"
     output.mkdir()
     return output
+
+
+def test_speech_mode_uses_actual_speech_text_and_times(subtitle_job,subtitle_state,monkeypatch):
+    monkeypatch.setattr('nodes.subtitle_cover.load_config',lambda _: {'timing_source':'speech'})
+    monkeypatch.setattr('nodes.speech_subtitles.create_bilingual_cues',lambda *args:[
+        {'start_ms':2220,'end_ms':2600,'zh':'实际配音。','en':'Actual speech.'}])
+    subtitle_cover(subtitle_state)
+    result=(subtitle_job/'bilingual.srt').read_text(encoding='utf-8')
+    assert '00:00:02,220 --> 00:00:02,600' in result
+    assert '实际配音。\nActual speech.' in result
+    assert 'Hello' not in result
+
+
+def test_speech_mode_does_not_fall_back_to_old_times_if_audio_missing(subtitle_job,subtitle_state,monkeypatch):
+    monkeypatch.setattr('nodes.subtitle_cover.load_config',lambda _: {'timing_source':'speech'})
+    with pytest.raises(FileNotFoundError,match='先生成'):
+        subtitle_cover(subtitle_state)
 
 
 @pytest.fixture
@@ -55,13 +73,58 @@ def test_exports_tracks_on_the_same_source_timeline(subtitle_job, subtitle_state
     assert subtitle_cover(subtitle_state) == {}
     actual = {file.name: file.read_bytes().decode("utf-8") for file in subtitle_job.iterdir()}
     ass = actual.pop("burnin.ass")
-    assert r"Dialogue: 2,0:00:00.00,0:00:01.23,ZH,,0,0,0,,你好 世界" in ass
+    assert r"Dialogue: 2,0:00:00.00,0:00:01.23,ZH,,0,0,185,,你好 世界" in ass
     assert r"Dialogue: 1,0:00:00.00,0:00:01.23,EN,,0,0,0,,Hello,\Nworld." in ass
     assert actual == {
         "english_segmented.srt": f"{first}Hello,\nworld.\n\n{second}Later.\n",
         "chinese.srt": f"{first}你好 世界\n\n{second}再见\n",
         "bilingual.srt": f"{first}你好 世界\nHello,\nworld.\n\n{second}再见\nLater.\n",
     }
+
+
+@pytest.mark.parametrize('height',[480,1080,2160])
+def test_multiline_english_keeps_chinese_above_and_both_centered(height):
+    from subtitle_templates import ass_dialogue,ass_header
+    header=ass_header(None,round(height*16/9),height,'clean','zh_top')
+    styles={line.split(',')[0].split(': ')[1]:line.split(',') for line in header.splitlines() if line.startswith('Style: ')}
+    assert int(styles['ZH'][18])==int(styles['EN'][18])==2
+    result=ass_dialogue('0:00:00.00','0:00:02.00','中文在上',
+                        'Original English first sentence.\nOriginal English second sentence.',
+                        'zh_top',render_height=height)
+    upper=result.splitlines()[0].split(',')
+    assert int(upper[7])>=int(styles['EN'][21])+2*int(styles['EN'][2])+5
+    assert r'Original English first sentence.\NOriginal English second sentence.' in result
+
+
+def test_speech_english_wrap_is_display_only_and_preserves_words():
+    from subtitle_templates import ass_dialogue
+    english=' '.join(['A complete original English sentence, with punctuation.']*4)
+    result=ass_dialogue('0:00:00.00','0:00:10.00','中文在上',english,'zh_top',
+                        render_height=720,wrap_english=True)
+    rendered=result.splitlines()[1].split(',',9)[9]
+    assert rendered.replace(r'\N',' ')==english
+    assert max(map(len,rendered.split(r'\N')))<=64
+    assert int(result.splitlines()[0].split(',')[7])>78
+
+
+def test_speech_long_chinese_wrap_keeps_every_character():
+    from subtitle_templates import ass_dialogue
+    chinese='这是用于检查长句中文字幕完整显示且不会超出画面宽度的测试文字'*3
+    result=ass_dialogue('0:00:00.00','0:00:10.00',chinese,'Original English.',
+                        'zh_top',render_height=720,wrap_chinese=True)
+    rendered=result.splitlines()[0].split(',',9)[9]
+    assert rendered.replace(r'\N','')==chinese
+    assert max(map(len,rendered.split(r'\N')))<=24
+
+
+def test_display_end_follows_dubbing_but_not_past_next_start(subtitle_job, subtitle_state, monkeypatch):
+    from contracts import TTSClip
+    monkeypatch.setattr('nodes.subtitle_cover.load_config', lambda _: {})
+    subtitle_state.tts_clips=[TTSClip(segment_id='seg_0001',audio_path='seg_0001.wav',
+        duration_ms=2000,text='你好',voice_id='local',model='test')]
+    subtitle_cover(subtitle_state)
+    assert '00:00:00,000 --> 00:00:02,000' in (subtitle_job/'bilingual.srt').read_text(encoding='utf-8')
+    assert subtitle_state.segments[1].end_ms==1234
 
 
 def test_fade_is_opt_in(subtitle_job, subtitle_state, monkeypatch):

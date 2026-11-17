@@ -1,6 +1,7 @@
 """Model request and response validation for the two text nodes."""
 
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -43,6 +44,12 @@ def text_model_name(env_file_value: str | None = None) -> str:
 
 def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT_FORMAT) -> dict:
     load_dotenv(text_model_env())
+    transport = os.getenv('DEEPSEEK_TRANSPORT', 'api').strip()
+    if transport == 'school_bridge':
+        from ._school_bridge import request_json as school_request
+        return school_request(instruction=instruction, payload=payload, output_format=output_format)
+    if transport != 'api':
+        raise ValueError('DEEPSEEK_TRANSPORT 仅支持 api 或 school_bridge。')
     with httpx.Client(timeout=REQUEST_TIMEOUT_SEC) as client:
         return generate_json(
             client,
@@ -53,12 +60,27 @@ def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT
         )
 
 
-def source_fields(segment: Segment) -> dict:
+def source_fields(segment: Segment, budget=None) -> dict:
     return {
         "segment_id": segment.segment_id,
         "text_en": segment.text_en,
         "duration_ms": segment.end_ms - segment.start_ms,
+        **(budget or {}),
     }
+
+
+def validate_chinese_translation(text: str) -> None:
+    """Reject obvious English clauses; allow Chinese text and proper names.
+
+    This is a leakage guard, not semantic or complete language verification.
+    """
+    if re.search(r'[\u3400-\u9fff]',text):return
+    words=re.findall(r'[A-Za-z]+',text.lower())
+    filler=''.join(words) in {'mmhmm','mhm','yes','yeah','right','no','okay','ok','good','thankyou'}
+    clause=bool(re.match(r'^(i|you|we|they|it|that|there|because|and|so|would|have|do|not|what|why|how|all)\b',text.strip(),re.I))
+    verb_clause=len(words)>=5 and bool(set(words)&{'is','are','was','be','been','has','have','would','could','should'})
+    if filler or clause or verb_clause:
+        raise ValueError('TRANSLATION_LANGUAGE_MISMATCH: 中文译文疑似仍为英文，需审查，不能直接配音')
 
 
 def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> list[TranslatedSegment]:
@@ -77,6 +99,7 @@ def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> li
             raise ValueError(f"{block_id}：模型返回了意外或重复的 ID {segment_id}。")
         if not translated.zh_subtitle.strip():
             raise ValueError(f"{block_id}：{segment_id} 的中文译文为空。")
+        validate_chinese_translation(translated.zh_subtitle)
         by_id[segment_id] = translated
 
     if by_id.keys() != expected:

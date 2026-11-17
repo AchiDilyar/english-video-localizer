@@ -10,6 +10,10 @@ import numpy as np
 
 logger=logging.getLogger(__name__)
 
+
+class _UnsafeRepair(ValueError):
+    """Reject a proposed change without discarding the original valid cue."""
+
 from .sentence_rules import sentences_from_words,validate_sentence_table
 
 
@@ -63,14 +67,14 @@ def recheck_table(table,audio_path,model,nlp,only_sentence_ids=None,*,strict_err
                     record['status']='manual_review_boundary_conflict'
                 else:
                     replacements,review=sentences_from_words(hypotheses[0],nlp)
-                    if review['untimed_utterances']:raise ValueError('Unresolved zero duration in repair')
+                    if review['untimed_utterances']:raise _UnsafeRepair('Unresolved zero duration in repair')
                     for j,replacement in enumerate(replacements,1):
                         replacement['sentence_id']=row['sentence_id'] if len(replacements)==1 else row['sentence_id']+f'_r{j:02d}'
                         replacement['speaker_id']=row['speaker_id']
                         replacement['review_issues']=sorted(set(replacement['review_issues']+['audio_recheck_changed_needs_human_confirmation']))
                         replacement['review_status']='needs_human_review'
                     trial=copy.deepcopy(out);trial['sentences']=rows+replacements+copy.deepcopy(original[i+1:])
-                    if validate_sentence_table(trial):raise ValueError('Repair failed final table validation')
+                    if validate_sentence_table(trial):raise _UnsafeRepair('Repair failed final table validation')
                     rows.extend(replacements);applied+=1;record['status']='provisionally_applied_insertion_only'
                     record['replacement_sentence_ids']=[r['sentence_id'] for r in replacements]
                     for item in pending:
@@ -79,6 +83,11 @@ def recheck_table(table,audio_path,model,nlp,only_sentence_ids=None,*,strict_err
                     retained=copy.deepcopy(row)
                     if record['status']!='unchanged':retained['review_issues']=sorted(set(retained['review_issues']+['audio_recheck_difference_needs_human_review']))
                     rows.append(retained)
+            except _UnsafeRepair as exc:
+                record['status']='manual_review_unsafe_repair_rejected';record['reason']=str(exc)
+                retained=copy.deepcopy(row)
+                retained['review_issues']=sorted(set(retained['review_issues']+['audio_recheck_unsafe_repair_rejected']))
+                retained['review_status']='needs_human_review';rows.append(retained)
             except Exception as exc:
                 if strict_errors:raise
                 record['status']='manual_review_recheck_failed';record['error_type']=type(exc).__name__

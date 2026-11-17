@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import shutil
 import time
+import os
 from urllib.parse import urlparse,parse_qs
 
 from .common import BError,digest,write_json
@@ -16,7 +17,8 @@ def youtube_url(value):
     if host in ['youtu.be','www.youtu.be']:video_id=u.path.strip('/').split('/')[0]
     elif host in ['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com']:
         if u.path=='/watch':video_id=parse_qs(u.query).get('v',[''])[0]
-        elif u.path.startswith(('/shorts/','/embed/','/live/')):video_id=u.path.strip('/').split('/')[1]
+        elif u.path.startswith(('/shorts/','/embed/','/live/')):
+            parts=u.path.strip('/').split('/');video_id=parts[1] if len(parts)>1 else ''
         else:video_id=''
     else:raise BError('INPUT_URL','Only YouTube URLs are accepted directly')
     if not re.fullmatch(r'[A-Za-z0-9_-]{11}',video_id):raise BError('INPUT_URL','A single YouTube video ID is required')
@@ -29,7 +31,7 @@ def resolve_input(value):
     return {'kind':'youtube','url':youtube_url(value),'rights':'user_selected_public_video_not_automatically_licensed'}
 
 
-def english_format(context):
+def english_format(context,max_height=720):
     formats=[f for f in context.get('formats',[]) if not f.get('has_drm')]
     def audio_rank(f):
         language=(f.get('language') or '').lower();note=(f.get('format_note') or '').lower()
@@ -38,11 +40,11 @@ def english_format(context):
         if not language:return 1
         return 0
     mux=[f for f in formats if f.get('vcodec') not in [None,'none'] and f.get('acodec') not in [None,'none']
-         and f.get('ext')=='mp4' and (f.get('height') or 0)<=480 and audio_rank(f)>0]
+         and f.get('ext')=='mp4' and (f.get('height') or 0)<=max_height and audio_rank(f)>0]
     if mux and max(audio_rank(f) for f in mux)>=3:
         yield max(mux,key=lambda f:(audio_rank(f),f.get('height') or 0,f.get('tbr') or 0));return
     videos=[f for f in formats if f.get('vcodec') not in [None,'none'] and f.get('acodec')=='none'
-            and f.get('ext')=='mp4' and (f.get('height') or 0)<=480]
+            and f.get('ext')=='mp4' and (f.get('height') or 0)<=max_height]
     audios=[f for f in formats if f.get('vcodec')=='none' and f.get('acodec') not in [None,'none'] and audio_rank(f)>0]
     if mux and (not videos or not audios or max(audio_rank(f) for f in audios)<3):
         yield max(mux,key=lambda f:(audio_rank(f),f.get('height') or 0,f.get('tbr') or 0));return
@@ -61,7 +63,7 @@ class QuietLogger:
 
 
 def download_input(value,output_dir,*,allow_network=False,max_duration_sec=7200,max_bytes=2*1024**3,
-                   download_timeout_sec=600,node_path=None):
+                   download_timeout_sec=600,node_path=None,max_height=720):
     """Public material interface. No login/cookies/DRM bypass or playlist downloads."""
     source=resolve_input(value);folder=Path(output_dir);folder.mkdir(parents=True,exist_ok=True)
     target=folder/'video.mp4';receipt=folder/'download.json';start=time.perf_counter()
@@ -74,11 +76,12 @@ def download_input(value,output_dir,*,allow_network=False,max_duration_sec=7200,
         meta={'kind':'local','title':source['title'],'input_path':str(src),'rights':source['rights']}
     else:
         if not allow_network:raise BError('NETWORK_DISABLED','Enable networking for YouTube input')
-        from yt_dlp import YoutubeDL
+        try:from yt_dlp import YoutubeDL
+        except ImportError as exc:raise BError('DEPENDENCY_MISSING','Run uv sync --extra b-asr to install yt-dlp') from exc
         started=time.perf_counter()
         selected_formats=[]
         def select_format(context):
-            for chosen in english_format(context):
+            for chosen in english_format(context,max_height=max_height):
                 audio=next((f for f in chosen.get('requested_formats',[]) if f.get('vcodec')=='none'),chosen)
                 selected_formats.append({k:audio.get(k) for k in ['format_id','language','format_note','acodec']})
                 yield chosen
@@ -97,6 +100,7 @@ def download_input(value,output_dir,*,allow_network=False,max_duration_sec=7200,
                  'max_filesize':max_bytes,'progress_hooks':[progress],'match_filter':check,
                  'writesubtitles':False,'writeautomaticsub':False,'writeinfojson':False,
                  'writethumbnail':False,'cachedir':False,'overwrites':False}
+        node_path=node_path or os.getenv('LOCALIZER_NODE_PATH') or shutil.which('node')
         if node_path:options['js_runtimes']={'node':{'path':str(node_path)}}
         try:
             with YoutubeDL(options) as ydl:
