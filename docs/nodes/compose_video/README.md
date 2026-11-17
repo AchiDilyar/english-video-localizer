@@ -16,7 +16,7 @@ torch、torchaudio、numpy已在speech可选依赖声明。本次复用既有Pyt
 
 权重仅首次显式下载到models/background-demucs，不上传。音频全程本地，不发生新的分离服务费用。音乐声部分离模型可能损失部分环境声，或留下人声残响；没有干净背景真值，不能承诺完全去人声。五分钟背景的本地英文ASR/VAD未检出台词，只是辅助检查。
 
-产物、回执和复现位于本机tests/tmp/five-minute-background-20261114/，中间文件不上传；本次源码见独立审核分支。参考：[Torchaudio官方教程](https://docs.pytorch.org/audio/2.8/tutorials/hybrid_demucs_tutorial.html)。
+产物、回执和复现位于本机tests/tmp/five-minute-background-20261114/，中间文件不上传；本次源码见交付分支（本轮按用户授权发布main）。参考：[Torchaudio官方教程](https://docs.pytorch.org/audio/2.8/tutorials/hybrid_demucs_tutorial.html)。
 
 ## 非语言人声
 
