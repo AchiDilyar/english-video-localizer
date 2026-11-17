@@ -36,18 +36,20 @@ def test_status_tracks_parallel_nodes_and_empty_increments(tmp_path):
 
 
 def test_duplicate_uploads_share_one_video(tmp_path):
+    stored=[]
     for name, data in (("first", b"video"), ("again", b"video"), ("other", b"other")):
         job = tmp_path / name
         job.mkdir()
-        save_job_input(BytesIO(data), len(data), job)
-        assert (job / "input.mp4").read_bytes() == data
+        source=save_job_input(BytesIO(data), len(data), job)
+        stored.append(source)
+        assert source.read_bytes() == data
+        assert not (job / "input.mp4").exists()
         assert not (job / "input.upload").exists()
 
-    first = tmp_path / "first/input.mp4"
-    again = tmp_path / "again/input.mp4"
+    first,again,other=stored
     assert first.samefile(again)
-    assert not first.samefile(tmp_path / "other/input.mp4")
-    first.unlink()
+    assert not first.samefile(other)
+    (tmp_path/'first').rmdir()
     assert again.read_bytes() == b"video"
 
 

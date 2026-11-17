@@ -28,6 +28,7 @@ class MixOptions(BaseModel):
 
 def mix_background(state: GraphState) -> dict:
     if state.environment_audio is None:
+        logger.warning("mix_background: no environment publication; compose_video will use pure Chinese dub")
         return {}
     source = input_path(state)
     bed, dub = Path(artifact_path("environment_bed")), Path(artifact_path("dub_audio"))
@@ -45,6 +46,8 @@ def mix_background(state: GraphState) -> dict:
         raise ValueError("Environment duration does not match current video")
     options = MixOptions.model_validate(load_config("mix_background.toml"))
     output = Path(artifact_path("mixed_track"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("mix_background: verified current background, gain=%.3f, duration=%.3fs", options.background_gain, duration)
     dub_sha256 = digest(dub)
     with TemporaryDirectory(prefix=".mix-background-", dir=output.parent) as tmp:
         prepared = Path(tmp) / "mixed.wav"
@@ -72,6 +75,7 @@ def mix_background(state: GraphState) -> dict:
         )
         prepared.replace(output)
         write_artifact("mixed_audio", receipt)
+    logger.info("mix_background: published mixed.wav; compose_video will use verified mix")
     return {"mixed_audio": receipt}
 
 

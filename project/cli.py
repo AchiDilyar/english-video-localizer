@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -35,8 +36,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="run-input")
     parser.add_argument("--work-dir", default=".", help="工作目录，必须已存在")
     parser.add_argument("--report-progress", action="store_true", help="记录主图节点进度供 WebUI 查看")
+    parser.add_argument("--authorize-voice-clone", action="store_true", help="确认原声授权并允许上传参考音频、创建付费音色；仅本次任务")
     parser.add_argument(
-        "--input", default="input.mp4", help="本地输入文件名或单条YouTube视频链接"
+        "--input", default="input.mp4", help="输入文件名、原视频绝对路径或单条YouTube链接；不复制原片"
     )
     return parser.parse_args(argv)
 
@@ -64,7 +66,9 @@ def _create_subdirs(work_dir: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     work_dir = Path(args.work_dir).resolve()
+    previous_voice_permission = os.environ.get("LOCALIZER_AUTHORIZE_VOICE_CLONE")
     try:
+        os.environ["LOCALIZER_AUTHORIZE_VOICE_CLONE"] = "1" if args.authorize_voice_clone else "0"
         _check_work_dir(work_dir)
         set_work_dir(str(work_dir))
         if args.input.startswith(('https://','http://')):
@@ -93,6 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         logger.exception("运行失败")
         print(f"运行失败: {exc}", file=sys.stderr)
         raise
+    finally:
+        if previous_voice_permission is None:
+            os.environ.pop("LOCALIZER_AUTHORIZE_VOICE_CLONE", None)
+        else:
+            os.environ["LOCALIZER_AUTHORIZE_VOICE_CLONE"] = previous_voice_permission
 
 
 if __name__ == "__main__":

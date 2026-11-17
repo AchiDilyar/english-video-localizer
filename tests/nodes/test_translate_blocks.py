@@ -155,6 +155,7 @@ def test_review_rejects_an_incomplete_response(source_state, monkeypatch):
 @pytest.mark.parametrize("config_location", ["environment", "installed"])
 def test_request_uses_the_node_local_deepseek_adapter(monkeypatch, tmp_path, config_location):
     monkeypatch.setenv('DEEPSEEK_TRANSPORT', 'api')
+    monkeypatch.setenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
     if config_location == "installed":
         package = tmp_path / "venv/Lib/site-packages/nodes/translate_blocks/_text_model.py"
         monkeypatch.setattr(_text_model, "__file__", str(package))

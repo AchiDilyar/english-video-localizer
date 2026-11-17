@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+**/voice_profiles.json
 .venv/
 .venv-b/
 .venv-uv/

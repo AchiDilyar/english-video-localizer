@@ -442,12 +442,13 @@ def tts_align(state: GraphState) -> dict:
 
     plan = load_voice_plan()
     if plan.voice_mode=='cloned':
-        from .voice_profiles import load_profiles
+        from .auto_voice_profiles import ensure_profiles
         from dotenv import load_dotenv
         load_dotenv(_REPO_ROOT/'.env')
         audio=Path(artifact_path('source_audio'))
-        voices=load_profiles(audio.with_name('voice_profiles.json'),audio,plan.model,
-                             os.getenv('DASHSCOPE_REGION','cn-beijing'),speaker_order)
+        voices=ensure_profiles(audio.with_name('voice_profiles.json'),audio,segments,speaker_order,
+                               model=plan.model,region=os.getenv('DASHSCOPE_REGION','cn-beijing'),
+                               authorized=os.getenv('LOCALIZER_AUTHORIZE_VOICE_CLONE')=='1')
     else:
         voices = assign_voices(plan, speaker_order)
 

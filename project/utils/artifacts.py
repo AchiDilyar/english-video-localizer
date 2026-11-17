@@ -70,6 +70,7 @@ ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
     "burnin_subtitle": ArtifactSpec(path="subtitles/burnin.ass", path_kind="fixed"),
     "final_video": ArtifactSpec(path="video/final.mp4", path_kind="fixed"),
     # 二进制产物，路径不确定（path="" 表示工作目录根）
+    # Relative names retain the work-dir root; explicit absolute input paths stay read-only in place.
     "input_video": ArtifactSpec(path="", path_kind="dir"),
     "tts_audio": ArtifactSpec(path="tts", path_kind="dir"),
 }

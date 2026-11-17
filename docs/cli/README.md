@@ -1,3 +1,5 @@
+> 2026-11-17 更新：下方早期流程记录保留历史参考。当前唯一主图仍为 graph.build_graph；--input 支持任务内文件名、原视频显式绝对路径或 YouTube 链接。新任务直接读取首次素材位置，不复制原片；最终输出为 video/final.mp4。详见 [现行输入数据流](../design/dataflow.md) 与 [WebUI说明](../webui.md)。
+
 # CLI 模块文档
 
 维护者：F｜代码：`project/cli.py`｜入口：`run-input`

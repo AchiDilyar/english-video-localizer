@@ -102,7 +102,7 @@ class SemanticReviewTests(unittest.TestCase):
                'request':{'model_dir':'not-used','semantic_review':{'provider':'deepseek','allow_network':True,'max_calls':1,
                                                                      'model':'test-model','base_url':'https://api.deepseek.com'}},
                'audio_ref':'audio.wav','duration_ms':16000,'source_meta':{}}
-        with patch('faster_whisper.WhisperModel',return_value=model),patch('nodes.asr_diarize.pipeline.semantic_review.DeepSeekHTTP',return_value=reviewer):
+        with patch('faster_whisper.WhisperModel',return_value=model),patch('nodes.asr_diarize.pipeline.semantic_review.DeepSeekHTTP',return_value=reviewer),patch('nodes.asr_diarize.pipeline.recognition.require_whisper_model',side_effect=lambda value:value):
             result=_recognize_sentence(state)
         self.assertEqual(model.transcribe.call_count,1);self.assertEqual(reviewer.call_count,1)
         self.assertEqual(len(result['table']['sentences']),2)

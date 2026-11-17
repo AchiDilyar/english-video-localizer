@@ -14,7 +14,7 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 ## 运行工作流
 
-在「视频输入」选择本地 MP4 或切换至「YouTube 链接」填写单条视频地址，再点击「运行工作流」。链接会在同一任务内先下载成 input.mp4，随后自动进入翻译、配音、字幕和合成。WebUI 按视频内容去重，将上传文件保存在 `jobs/.inputs/`。每个任务目录里的 `input.mp4` 是指向同一份数据的硬链接。WebUI 随后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。原有 `jobs/webui/` 下的历史任务仍可在队列中查看。 [CLI 文档](cli/README.md)
+在「视频输入」选择本地 MP4、填写 YouTube 链接，或选择「已有素材」。原片只保留在首次素材目录，任务通过 --input <原视频绝对路径> 读取，不复制或硬链接到任务目录。链接重复提交时校验并复用已有文件，不再重复下载。浏览器本地文件首次上传至共享素材目录；之后选择已有素材无需再次上传。处理结果仍保存在各自 jobs/<任务ID>/ 下，旧任务的原片仍可原地预览。
 
 每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。新任务通过 CLI 的 --report-progress 记录 LangGraph 实际节点事件，可显示并行节点和空增量；历史任务没有该日志时兼容按正式产物显示就绪状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `logs/runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
 
@@ -109,3 +109,47 @@ NODE_PATH="$localizer_test_dir/node_modules" node tests/webui.spec.cjs
 真实运行仍需安装对应 uv extras，准备 Whisper/Community-1/字幕定位模型，配置翻译服务、配音 API 和所选音色；默认 cloned 音色需当前视频说话人的授权音色记录。链接输入不会自动生成新说话人的克隆授权或账号记录。模型和密钥按项目 README 配置，密钥不通过网页提交。
 
 验证：528 passed、2 skipped、2 deselected、11 subtests passed（18.04秒），日志 tests/tmp/webui-full-20261117.log。测试覆盖链接校验、任务冲突、节点并行进度、增量空返回、下载失败，以及 HTTP提交→标准CLI→F主图→实际FFmpeg音视频与字幕合成→成片下载。识别、翻译、配音和下载在该联通测试中使用固定替身，不是重新完成整片真实模型验收；本轮付费API调用0。页面实测已核对11节点、参数、链接切换与无效链接错误提示。旧 Playwright 全量脚本仅同步拓扑断言，本轮未执行该脚本。
+
+
+### 兼容网关直连配置
+
+在当前 WebUI 运行目录的本机 `.env` 中设置 `DEEPSEEK_TRANSPORT=api` 和 `DEEPSEEK_BASE_URL=https://gateway.example.org/v1`，密钥写入 `DEEPSEEK_API_KEY`，模型标识写入 `DEEPSEEK_MODEL`。模型名以学校账号实际提供的模型为准，不能默认官网模型名也可用于学校网关。
+
+翻译、审校与配音时长改稿复用同一个文本适配器，现在读取该 URL 并请求 `/v1/chat/completions`，不再固定发往官网。兼容接口不附加官网特有的 thinking 参数。地址可带或不带末尾斜杠，也可提供完整 chat/completions 地址，不会重复拼接。实际密钥只留在本机，网页只读设置不展示密钥。
+
+本轮使用模拟 HTTP 验证自定义主机、路径、鉴权头和模型名传递，相关17项测试通过；未调用真实学校模型，也未验证账号余额或模型可用性。
+
+
+## 自动音色记录与原片只读复用（2026-11-17）
+
+原声音色复刻由固定程序 nodes.auto_voice_profiles 在已有 tts_align 节点内执行，不依赖 Codex，不新建业务图。WebUI 视频输入的授权勾选只对当前视频和任务生效，换文件/链接/素材即重置。API JSON 可传 authorize_voice_clone: true；文件上传使用 X-Authorize-Voice-Clone: true。CLI 对应 --authorize-voice-clone，调用结束恢复原进程权限值。
+
+本次获准后，程序从各说话人的分段中选10–15秒原声；优先连续片段，必要时只拼接同一人的片段，排除已知跨说话人重叠。样本太短、静音或严重削波时先报错，不发注册请求；这些检查不能保证完全去除背景噪声或识别所有串音。所有参考先校验后再创建音色，每次新增说话人最多发起一次请求，失败不自动追加。临时样本处理后清理。沿用 D 的本机私有 audio/voice_profiles.json，不把账号音色ID传入 GraphState 或提交仓库。
+
+相同源音频摘要、配音账号指纹、模型、地域和人物时间轴时，可从历史 jobs 下复用匹配记录；不覆盖错误来源，也不因缺音色自动切换系统音色。已有部分音色时只补缺少的人。创建音色需上传原声，可能收费，费用与额度不由程序猜测。
+
+共享素材：新下载直接存 media/downloads/<视频ID>/，历史下载原地登记原路径。本地上传首次存 media/downloads/uploads/，任务目录不生成 input.mp4；只有派生音轨和输出保留在任务中。GET /api/video-sources 提供列表；POST /api/workflow-runs 可发送 {"source_id":"列表返回的ID","authorize_voice_clone":true}。只接受列表内ID，不能通过接口伪造任意文件路径。预览与主图读取同一原片。
+
+自动音色流程已按单次授权完成小样验证；账户记录留在本机，不随代码发布。后续功能验证使用模拟接口，不额外产生注册费用。
+
+本轮原片复用验证：546 passed、2 skipped、2 deselected、11 subtests passed（26.82秒），日志 tests/tmp/read-original-full-20261117.log。覆盖重复链接只下载一次、重复任务直接读取同一原片、历史路径原地登记、上传去重、原片变更校验及主图合成联通；模型/下载使用替身，未新增付费调用。已重启本地8766服务，并通过素材列表接口确认历史首次下载路径可直接使用。
+
+## 视频预览切换与网页 API 设置（2026-11-17）
+
+字幕查看页预览区右上角可切换原视频/目标视频；目标视频读取当前任务的 final_video，尚无成片时按钮禁用。切换尽量保持播放位置，不额外复制视频。目标视频预览使用 final-video?download=0，原下载接口保留附件下载行为，支持 Range 拖动播放。
+
+顶栏「API 设置」提供翻译接口地址、模型和密钥，以及配音地域、模型、业务空间和密钥。地域可手动填写服务商标识，也提供新加坡/北京/上海建议；格式通过不代表服务商已支持该地域。翻译采用兼容 API 直连，默认提供通用服务地址，具体网关、模型、地域及密钥由使用者在本机填写。
+
+配置仅写本机 .env（密钥及连接参数）和 config/tts.toml（配音模型），保留其余配置。密钥采用密码输入框，GET/保存响应仅返回是否已配置，不返回原值；空白保留，显式勾选清除才移除。表单关闭和保存结束清空输入，不写浏览器持久存储。API 仅接受本机同源请求，响应 no-store，运行中禁止修改；下次主图子进程读取新配置，无需重启。修改接口或地域前请自行核对密钥所属服务；保存不触发真实模型调用。密钥仍是本机 .env 文件中的明文配置，应保管本机文件且不得提交仓库。
+
+验证：快速回归554项通过、2项跳过、2项慢测试未选，11个subtests通过；之后地域可编辑的8项专项测试通过。使用假密钥和本地替身，无新增付费调用。已在页面确认本机连接参数正确读取，密钥仅显示「已配置，原值隐藏」；个人连接参数不提交仓库。当前无完成成片的历史任务，因此实页目标按钮禁用；目标视频接口的在线播放/下载/Range已用测试文件验证。发布只包含通用代码与说明，不含私人 API 配置。
+
+## 背景节点真实启用（2026-11-17）
+
+按用户要求，config/mock.toml 中 b_environment=false、mix_background=false。沿用 F 既定11节点主图：asr_diarize 后的 b_environment 与翻译链并行；mix_background 汇合 subtitle_cover 与 b_environment，随后 compose_video 验证并使用混音。不新增图，不新增业务字段或落盘产物。
+
+WebUI 两个节点的参数均直接编辑对应 TOML：B 节点的模型路径、CPU/CUDA、非语言事件阈值及保护间隔/增益，E 节点的背景增益。增加背景节点的阶段日志、完成产物说明和明确的纯配音回退提示。缺失模型或其他异常仍遵守 F 增量代理规则，不能把回退当作背景处理成功。
+
+真实模型实测：已下载的18.933秒短片，本地 Demucs 分离、AST 检查3个台词间隙、FFmpeg混音与时长校验通过，处理部分15.52秒。未检出满足阈值的恢复事件，因此不能据此声称笑声恢复效果已人工确认。配音采用测试正弦音，未调用收费服务；非真实中文成片验收。产物及报告位于 tests/tmp/background-neural-20261117/test_real_local_background0/。复现入口 tests/smoke/test_background_local_models.py，显式设置 LOCALIZER_TEST_BACKGROUND_VIDEO 和 LOCALIZER_TEST_BACKGROUND_SEGMENTS 后以 uv run pytest 运行。
+
+完整快速测试：555 passed、2 skipped、3 deselected、11 subtests passed（24.66秒），另1项真实模型测试通过。主图测试含背景失败、混音失败、增量缺失和成功合成路径。私人 API 参数、密钥、音色账户记录及实验媒体不随代码发布。

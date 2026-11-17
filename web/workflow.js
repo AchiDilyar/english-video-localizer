@@ -22,6 +22,9 @@ let runResult = null;
 let inputVideo = null;
 let inputMode = 'file';
 let youtubeUrl = '';
+let authorizeVoiceClone = false;
+let selectedSourceId = '';
+let knownSources = [];
 let config = defaults();
 let anchors = {};
 let selected = 'probe_input';
@@ -174,24 +177,65 @@ function svg(tag, attributes = {}) {
   for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
   return element;
 }
+async function refreshSources() {
+  try {
+    const data = await workflowResponse(await fetch('/api/video-sources'));
+    knownSources = data.sources;
+    if (!knownSources.some(source => source.id === selectedSourceId)) selectedSourceId = knownSources[0]?.id ?? '';
+    if (inputMode === 'existing') { renderNodes(); draw(); }
+  } catch (error) { toast(error.message || '无法读取已有素材', true); }
+}
+
 function videoPicker() {
   const picker = el('div', 'source-picker');
   const tabs = el('div', 'source-tabs');
-  for (const [mode, title] of [['file', '本地 MP4'], ['youtube', 'YouTube 链接']]) {
+  for (const [mode, title] of [['file', '本地 MP4'], ['youtube', 'YouTube 链接'], ['existing', '已有素材']]) {
     const tab = el('button', '', title);
     tab.type = 'button';
     tab.disabled = busy;
     tab.setAttribute('aria-pressed', String(inputMode === mode));
     tab.onclick = () => {
       inputMode = mode;
+      authorizeVoiceClone = false;
       if (mode === 'youtube') setPreviewInput(null);
-      else if (inputVideo) setPreviewInput(inputVideo);
+      else if (mode === 'file' && inputVideo) setPreviewInput(inputVideo);
+      else setPreviewInput(null);
       renderNodes();
       draw();
+      if (mode === 'existing') void refreshSources();
     };
     tabs.append(tab);
   }
   picker.append(tabs);
+  const consent = el('label', 'voice-clone-consent');
+  const check = el('input');
+  check.type = 'checkbox';
+  check.checked = authorizeVoiceClone;
+  check.disabled = busy;
+  check.onchange = () => { authorizeVoiceClone = check.checked; };
+  consent.append(check, el('span', '', '已获本视频所有说话人授权，允许上传参考原声并创建复刻音色（可能收费）'));
+  picker.append(consent);
+  if (inputMode === 'existing') {
+    const label = el('label', 'source-url-label', '选择已下载或上传的原视频');
+    const select = el('select', 'source-url');
+    select.setAttribute('aria-label', '已有原视频');
+    select.disabled = busy;
+    if (!knownSources.length) select.add(new Option('暂无素材，请先下载或上传一次', ''));
+    for (const source of knownSources) select.add(new Option(source.title, source.id));
+    select.value = selectedSourceId;
+    const location = el('p', 'connection-note', knownSources.find(source => source.id === selectedSourceId)?.path ?? '');
+    location.style.overflowWrap = 'anywhere';
+    select.onchange = () => {
+      selectedSourceId = select.value;
+      authorizeVoiceClone = false; check.checked = false;
+      location.textContent = knownSources.find(source => source.id === selectedSourceId)?.path ?? '';
+    };
+    const refresh = el('button', '', '刷新素材列表');
+    refresh.type = 'button'; refresh.disabled = busy; refresh.onclick = () => { void refreshSources(); };
+    label.append(select);
+    picker.append(label, location, el('p', 'connection-note', '直接读取首次下载的原片；任务目录只保存处理结果。'), refresh);
+    return picker;
+  }
   if (inputMode === 'youtube') {
     const label = el('label', 'source-url-label', '原视频链接');
     const input = el('input', 'source-url');
@@ -200,7 +244,7 @@ function videoPicker() {
     input.value = youtubeUrl;
     input.disabled = busy;
     input.setAttribute('aria-label', 'YouTube 视频链接');
-    input.oninput = () => { youtubeUrl = input.value; };
+    input.oninput = () => { youtubeUrl = input.value; authorizeVoiceClone = false; check.checked = false; };
     label.append(input);
     picker.append(label, el('p', 'connection-note', '点击顶部运行：下载后自动完成翻译、配音、字幕与成片。'));
     return picker;
@@ -771,7 +815,8 @@ function draw() {
     if (node.id === 'probe_input' && runResult?.phase === 'download' && runResult?.state === 'running') label = '下载原视频 · 入图准备';
     if (done) label = node.id === 'asr_diarize' ? '英文分段已就绪' : '已完成';
     const noOutput = runResult?.node_states?.[node.id] === 'no_output';
-    if (noOutput) label = '未产生增量 · 基础流程继续';
+    if (noOutput) label = ['b_environment', 'mix_background'].includes(node.id)
+      ? '背景处理未生效 · 继续纯中文配音' : '未产生增量 · 基础流程继续';
     if (running) label = '正在运行';
     if (failed) label = runResult.state === 'blocked' ? '尚未接入 · 已停止' : '执行失败';
     item.classList.toggle('is-active', running);
@@ -1136,7 +1181,11 @@ document.addEventListener('open-task-log', event => {
 function updateOutput() {
   let output = `${index.get(selected).title}尚无运行输出。`;
   if (selected === 'probe_input' && runResult?.phase === 'download') output = runResult.message;
-  else if (runResult?.node_states?.[selected] === 'no_output') output = '本次未发布增量产物，基础流程继续运行。详情见后端日志。';
+  else if (runResult?.node_states?.[selected] === 'no_output') output = ['b_environment', 'mix_background'].includes(selected)
+    ? '背景处理未生效，本次继续使用纯中文配音。请查看后端日志中的模型或混音错误。'
+    : '本次未发布增量产物，基础流程继续运行。详情见后端日志。';
+  else if (selected === 'b_environment' && runResult?.completed_nodes?.includes(selected)) output = '已完成本地背景分离与非语言事件检查，发布 audio/environment.wav 和 environment.source.json；与原视频、台词时间轴绑定。';
+  else if (selected === 'mix_background' && runResult?.completed_nodes?.includes(selected)) output = '已混合背景与中文配音，发布 audio/mixed.wav 和 mixed.mix.json；合成节点会验证并使用混合音轨。';
   else if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
   else if (selected === 'asr_diarize' && runResult?.english_segments_ready) output = '英文分段已就绪。';
   else if (selected === 'subtitle_cover' && runResult?.completed_nodes?.includes(selected)) {
@@ -1166,6 +1215,7 @@ $('workflow-video').onchange = event => {
     return;
   }
   inputVideo = file;
+  authorizeVoiceClone = false;
   setPreviewInput(file);
   renderNodes();
   draw();
@@ -1205,10 +1255,11 @@ function setRunLock(locked) {
 
 $('run').onclick = async () => {
   if (busy || savingSettings.size) return;
-  if ((inputMode === 'file' && !inputVideo) || (inputMode === 'youtube' && !youtubeUrl.trim())) {
+  if ((inputMode === 'file' && !inputVideo) || (inputMode === 'youtube' && !youtubeUrl.trim()) ||
+      (inputMode === 'existing' && !selectedSourceId)) {
     selectNode('probe_input');
     focusNode();
-    toast('请先在「视频输入」节点选择 MP4 或填写 YouTube 链接。');
+    toast('请先选择 MP4、填写 YouTube 链接，或选择已有素材。');
     return;
   }
 
@@ -1218,16 +1269,19 @@ $('run').onclick = async () => {
   setConsoleTab(false);
   followTaskLog(null);
   const isUrl = inputMode === 'youtube';
+  const isJson = inputMode !== 'file';
   showRunResult({ state: 'running', phase: isUrl ? 'download' : 'workflow',
-    message: isUrl ? '正在提交视频链接…' : `正在读取 ${inputVideo.name}…` });
+    message: isUrl ? '正在准备原视频（已有素材将直接复用）…' : isJson ? '正在读取已有原视频…' : `正在读取 ${inputVideo.name}…` });
   try {
     const { job_id: jobId } = await workflowResponse(await fetch('/api/workflow-runs', {
       method: 'POST',
       headers: {
-        'Content-Type': isUrl ? 'application/json' : 'application/octet-stream',
-        ...(!isUrl ? { 'X-Video-Name': encodeURIComponent(inputVideo.name) } : {}),
+        'Content-Type': isJson ? 'application/json' : 'application/octet-stream',
+        'X-Authorize-Voice-Clone': String(authorizeVoiceClone),
+        ...(!isJson ? { 'X-Video-Name': encodeURIComponent(inputVideo.name) } : {}),
       },
-      body: isUrl ? JSON.stringify({ url: youtubeUrl.trim() }) : inputVideo,
+      body: isJson ? JSON.stringify({ ...(isUrl ? { url: youtubeUrl.trim() } : { source_id: selectedSourceId }),
+        authorize_voice_clone: authorizeVoiceClone }) : inputVideo,
     }));
     const jobUrl = `/api/workflow-runs/${jobId}`;
     runResult.jobId = jobId;
