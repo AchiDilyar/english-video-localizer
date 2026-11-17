@@ -141,16 +141,6 @@ def test_workflow_without_final_video(work_dir, fake_graph, capsys):
     assert fake_graph.calls[0].input_video == "input.mp4"
 
 
-def test_optional_bcde_graph_factory_preserves_standard_cli(work_dir,fake_graph):
-    (work_dir/'input.mp4').touch();alternate=_FakeGraph()
-    assert cli.main(['--work-dir',str(work_dir)],graph_factory=lambda:alternate)==0
-    assert len(alternate.calls)==1 and fake_graph.calls==[]
-    actual_dirs = {p.name for p in work_dir.iterdir() if p.is_dir()}
-    assert _EXPECTED_SUBDIRS <= actual_dirs
-    assert (work_dir / "logs" / "run.log").exists()
-    assert alternate.calls[0].input_video == "input.mp4"
-
-
 def test_reports_existing_final_video(work_dir, fake_graph, capsys, monkeypatch):
     (work_dir / "input.mp4").touch()
 

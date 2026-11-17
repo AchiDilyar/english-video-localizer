@@ -64,6 +64,8 @@
 | `TranslationBlock` | 翻译与审校的单位 |
 | `TranslatedSegment` | 翻译结果与审校结果的元素 |
 | `TTSClip` | 逐段 TTS 音频记录 |
+| `EnvironmentAudio` | 可选环境音来源回执 |
+| `MixedAudio` | 可选混音来源回执 |
 
 说明：
 
@@ -94,6 +96,10 @@
 | 译文 SRT | `chinese_srt` | E 本地实现，待确认 | 审校后的中文字幕 | - | `subtitles/chinese.srt` |
 | 双语 SRT | `bilingual_srt` | 基础版 | 发布用双语字幕 | - | `subtitles/bilingual.srt` |
 | 烧录字幕 | `burnin_subtitle` | 基础版 | 供 FFmpeg 烧录的字幕 | - | `subtitles/burnin.ass` |
+| 环境音 | `environment_bed` | 增量 | B 分离背景并保守恢复非语言声音 | - | `audio/environment.wav` |
+| 环境音来源回执 | `environment_audio` | 增量 | 与当前源视频及分段摘要绑定 | `EnvironmentAudio` | `audio/environment.source.json` |
+| 混合音轨 | `mixed_track` | 增量 | 环境音与中文配音混合，不覆盖纯配音 | - | `audio/mixed.wav` |
+| 混音来源回执 | `mixed_audio` | 增量 | 与当前源视频、背景及中文配音摘要绑定 | `MixedAudio` | `audio/mixed.mix.json` |
 | 成片 | `final_video` | 基础版 | 中文配音成片 | - | `video/final.mp4` |
 
 补充说明：
@@ -113,6 +119,10 @@ work_dir/
   audio/
     source.wav           # 从输入视频提取的英文音轨
     dub.wav              # 组装后的中文配音音轨
+    environment.wav      # 增量环境音
+    environment.source.json # 增量环境音回执
+    mixed.wav            # 增量混音
+    mixed.mix.json       # 增量混音回执
   segments/
     segments.json        # 分段结果，内容模型 list[Segment]
     blocks.json          # 翻译块，内容模型 list[TranslationBlock]
@@ -234,3 +244,11 @@ utils 提供三类函数：
 - 原文、译文及双语 SRT、烧录字幕、中文配音音轨、分段音频、分段与翻译审校 JSON 等均为中间产物或调试副本，不构成对外交付的最终产物。
 
 - CLI 输出运行状态与 `final_video` 的路径。
+
+## 2026-11-17 增量环境音接入说明
+
+`GraphState.environment_audio` 与 `mixed_audio` 均为可选、默认 None，不改变基础字段。B 仅返回环境音回执，E 混音节点仅返回混音回执，避免并行写同一字段。固定媒体路径不放入 State，按产物名称获取。JSON 通过公共 write_artifact 校验写盘后返回增量；下游读取 State 中的模型，不把回执 JSON 当节点间通道。分离临时 stems、AST 特征与底层工具诊断仅为节点私有临时文件，成功/失败后清理，不作为跨组产物。
+
+`mix_background` 没有 environment_audio 时返回 {}；compose_video 没有有效 mixed_audio 时使用 dub_audio，不根据磁盘是否存在旧 mixed.wav 猜测成功。摘要失配、媒体缺失时警告并回退，不要求基础链具备增量产物。
+
+EnvironmentAudio 的恢复区间 restored_intervals_ms 使用毫秒整数；工具内部秒值只在发布时转换。duration_sec 为带单位的媒体时长统计，不作为分段时间戳。

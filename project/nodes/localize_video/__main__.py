@@ -1,6 +1,3 @@
-"""Reuse the standard CLI with the optional high-level BCDE graph."""
-from cli import main
-from .pipeline import build_bcde_graph
-
-if __name__=='__main__':
-    raise SystemExit(main(graph_factory=build_bcde_graph))
+"""Retired executable. Use the single F-owned main graph through run-input."""
+if __name__ == "__main__":
+    raise SystemExit("This entry is retired. Use: uv run run-input --work-dir <job> --input input.mp4")

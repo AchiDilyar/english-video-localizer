@@ -14,7 +14,7 @@ config/subtitle_cover.toml启用timing_source=speech、paginate=true、semantic_
 
 ## 职能与入口
 
-新BCDE封装见 [localize_video](../localize_video/README.md)。C负责内容、翻译审校和语言建议；D负责声音与时长；E负责最终显示、混音和成片，B提供源台词及环境声音。F的既有节点与共享State不变。
+主图对齐说明见 [localize_video](../localize_video/README.md)。C负责内容、翻译审校和语言建议；D负责声音与时长；E负责最终显示、混音和成片，B提供源台词及环境声音。运行只使用F主图；可选环境音/混音回执见上述说明。
 
 生产入口render_speech_subtitles先获取最终音频字幕，再调用unify_final_cues读取实际稿；render_cue_tracks使用严格字体测量及e_single_line分页。三份SRT、burnin.ass和display_cues使用相同显示片段；英文和中文实际稿分别检查完整覆盖。
 
@@ -22,6 +22,6 @@ config/subtitle_cover.toml启用timing_source=speech、paginate=true、semantic_
 
 83屏全部中文一行、英文一行，0换行例外、0越界、0丢字或调序。之前两处两行分别拆为81.520–85.900/85.900–88.500秒，以及285.800–287.712/287.712–289.600秒。实测图片和检查在本机tests/tmp/five-minute-bcde-singleline-20261114/。
 
-本轮通过新BCDE四阶段LangGraph复用B/C/D同源验证缓存，E真实重跑；182项相关测试通过。字幕、配音、背景及非语言声音均有摘要和来源记录，未额外调用TTS或学校模型。原始英文识别仍有待人工核对项，字幕时间也不等于逐词人工强制对齐验收。
+历史五分钟实验通过当时的BCDE四阶段LangGraph（该入口现已停用）复用B/C/D同源验证缓存，E真实重跑；182项相关测试通过。字幕、配音、背景及非语言声音均有摘要和来源记录，未额外调用TTS或学校模型。原始英文识别仍有待人工核对项，字幕时间也不等于逐词人工强制对齐验收。
 
 旧两行实验仅作为本地历史基准，不是当前规则。源码以2026-11-17交付分支（本轮按用户授权发布main）交付，设计变更待F确认；历史中间文件不上传。

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from .block import TranslationBlock
+from .environment import EnvironmentAudio, MixedAudio
 from .media import MediaInfo
 from .segment import Segment
 from .translated import TranslatedSegment
@@ -29,3 +30,5 @@ class GraphState(BaseModel):
     reviewed_blocks: list[TranslatedSegment] | None = None
     repaired_blocks: list[TranslatedSegment] | None = None
     tts_clips: list[TTSClip] | None = None
+    environment_audio: EnvironmentAudio | None = None
+    mixed_audio: MixedAudio | None = None

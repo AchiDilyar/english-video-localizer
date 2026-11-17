@@ -1,8 +1,8 @@
-# project/contracts/generate_interfaces.py
+# scripts/generate_interfaces.py
 """从 Pydantic 模型生成 docs/contracts/interfaces.md。
 
 运行：
-    python -m project.contracts.generate_interfaces
+    uv run python scripts/generate_interfaces.py
 
 说明：
 - BaseModel 使用 model_json_schema()；
@@ -18,6 +18,8 @@ from typing import Any, get_args, get_origin, get_type_hints
 from pydantic import BaseModel, TypeAdapter
 
 from contracts import (
+    EnvironmentAudio,
+    MixedAudio,
     AudioStreamInfo,
     GraphState,
     MediaInfo,
@@ -29,6 +31,8 @@ from contracts import (
 )
 
 BASE_MODELS: list[type[BaseModel]] = [
+    EnvironmentAudio,
+    MixedAudio,
     MediaInfo,
     VideoStreamInfo,
     AudioStreamInfo,
@@ -112,7 +116,7 @@ def render_markdown() -> str:
     lines: list[str] = [
         "# 接口定义",
         "",
-        "> 本文件由 `project/contracts/generate_interfaces.py` 从 Pydantic 模型自动生成，请勿手工修改。",
+        "> 本文件由 `scripts/generate_interfaces.py` 从 Pydantic 模型自动生成，请勿手工修改。",
         "> 字段名、类型、必填性以本文件与 `project/contracts/` 为准。",
         "",
     ]

@@ -1,22 +1,16 @@
 import pytest
 from contracts import GraphState
-from nodes.localize_video.pipeline import StageServices,build_bcde_graph
+from nodes.localize_video.pipeline import build_bcde_graph
 from nodes.localize_video.common import run_nodes
 
 
-def test_four_stages_merge_existing_contract_fields_in_order():
-    order=[]
-    def step(name):
-        def node(state):
-            assert state.terminology==({n:n for n in order} if order else None)
-            order.append(name)
-            return {'terminology':{n:n for n in order}}
-        return node
-    services=StageServices(b_nodes=(step('B'),),c_nodes=(step('C'),),d_nodes=(step('D'),),e_nodes=(step('E'),))
-    initial=GraphState(input_video='input.mp4')
-    result=build_bcde_graph(services).invoke(initial)
-    assert order==['B','C','D','E'] and result['terminology']=={n:n for n in order}
-    assert initial.terminology is None
+def test_legacy_builder_delegates_to_only_main_graph(monkeypatch):
+    sentinel=object()
+    monkeypatch.setattr('graph.build_graph',lambda:sentinel)
+    with pytest.warns(DeprecationWarning):
+        assert build_bcde_graph() is sentinel
+    with pytest.raises(ValueError,match='retired'):
+        build_bcde_graph(object())
 
 
 def test_stage_rejects_undocumented_shared_state_fields():

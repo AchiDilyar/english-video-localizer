@@ -1,7 +1,31 @@
 # 接口定义
 
-> 本文件由 `project/contracts/generate_interfaces.py` 从 Pydantic 模型自动生成，请勿手工修改。
+> 本文件由 `scripts/generate_interfaces.py` 从 Pydantic 模型自动生成，请勿手工修改。
 > 字段名、类型、必填性以本文件与 `project/contracts/` 为准。
+
+## EnvironmentAudio
+
+B environment publication, bound to the current source and segment timeline.
+
+| 字段 | 类型 | 必填 | 约束/说明 |
+|---|---|---|---|
+| `source_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `segments_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `environment_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `duration_sec` | `float` | 是 | exclusiveMinimum=0 |
+| `restored_intervals_ms` | `list[tuple[int, int]]` | 否 | 默认=PydanticUndefined |
+
+## MixedAudio
+
+E mix publication, bound to the current source, environment and Chinese dub.
+
+| 字段 | 类型 | 必填 | 约束/说明 |
+|---|---|---|---|
+| `source_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `environment_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `dub_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `mixed_sha256` | `str` | 是 | pattern=^[0-9a-f]{64}$ |
+| `duration_sec` | `float` | 是 | exclusiveMinimum=0 |
 
 ## MediaInfo
 
@@ -105,3 +129,5 @@ LangGraph 顶层状态。
 | `reviewed_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `repaired_blocks` | `UnionType[list[TranslatedSegment], None]` | 否 | — |
 | `tts_clips` | `UnionType[list[TTSClip], None]` | 否 | — |
+| `environment_audio` | `UnionType[EnvironmentAudio, None]` | 否 | — |
+| `mixed_audio` | `UnionType[MixedAudio, None]` | 否 | — |

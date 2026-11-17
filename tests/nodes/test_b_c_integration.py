@@ -74,7 +74,8 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch, repair_mode):
         return {"items": [{"segment_id": key, "zh_subtitle": texts[key]} for key in ids]}
 
     monkeypatch.setattr(_text_model, "request_json", response)
-    flags = {name: name not in registry.NODE_NAMES[:5] for name in registry.NODE_NAMES}
+    real_chain = ('probe_input', 'asr_diarize', 'build_blocks', 'translate_blocks', 'review_blocks')
+    flags = {name: name not in real_chain for name in registry.NODE_NAMES}
     flags["repair_blocks"] = repair_mode == "mock"
     monkeypatch.setattr(registry, "load_config", lambda filename: flags)
     monkeypatch.setattr(paths, "_work_dir", None)
@@ -82,8 +83,10 @@ def test_real_dialogue_B_C_through_F_graph(tmp_path, monkeypatch, repair_mode):
     graph = build_graph()
     events = list(graph.stream(GraphState(input_video="input.mp4"), stream_mode="updates"))
     called = [name for event in events for name in event if not name.startswith("__")]
-    assert called[:5] == list(registry.NODE_NAMES[:5])
-    assert set(called[5:]) == set(registry.NODE_NAMES[5:])
+    assert set(called) == set(registry.NODE_NAMES)
+    assert [name for name in called if name in real_chain] == list(real_chain)
+    assert called.index('b_environment') > called.index('asr_diarize')
+    assert called.index('mix_background') > max(called.index('b_environment'), called.index('subtitle_cover'))
     source = read_artifact("segments")
     reviewed = read_artifact("reviewed_blocks")
     assert source == expected

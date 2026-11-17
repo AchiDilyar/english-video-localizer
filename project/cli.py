@@ -60,7 +60,7 @@ def _create_subdirs(work_dir: Path) -> None:
         (work_dir / name).mkdir(parents=True, exist_ok=True)
 
 
-def main(argv: list[str] | None = None, *, graph_factory=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     work_dir = Path(args.work_dir).resolve()
     try:
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None, *, graph_factory=None) -> int:
         setup_logging(str(work_dir / "logs" / "run.log"))
 
         initial_state = GraphState(input_video=args.input)
-        (graph_factory or build_graph)().invoke(initial_state)
+        build_graph().invoke(initial_state)
 
         final_video = Path(artifact_path("final_video"))
         if final_video.is_file() and final_video.stat().st_size > 0:

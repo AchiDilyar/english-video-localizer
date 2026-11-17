@@ -28,7 +28,7 @@ source_expression=true记录本地原声声学指标，当前指令保持参考�
 
 ## 背景音与产物
 
-dub.wav保留纯中文供字幕使用，原片经本地Demucs去人声后混入mixed.wav。compose_video校验源视频、配音、混音摘要后使用，旧混音不匹配则失败。入口和局限见 [成片音轨说明](../compose_video/README.md)。
+dub.wav保留纯中文供字幕使用，原片经本地Demucs去人声后混入mixed.wav。compose_video仅消费当前状态发布且摘要有效的混音，旧混音不匹配时警告并回退纯配音。入口和局限见 [成片音轨说明](../compose_video/README.md)。
 
 读取segments、reviewed_blocks、媒体信息，返回tts_clips，不新增共享State字段。组稿、真实原始音频、timing、alignment_report、speed回执归入tts；识别结果及待回听警告归入subtitles。主流程和测试用uv run --locked，依赖由pyproject.toml与uv.lock维护。分离worker复用既有GPU环境经uv启动，实际版本另记，不误称与主环境相同。
 

@@ -67,8 +67,8 @@ def compose_video(state: GraphState) -> dict:
     if use_dub and (not dub.is_file() or dub.stat().st_size <= 44):
         raise FileNotFoundError(f"缺少真实配音音轨：{dub}")
     if use_dub:
-        from .audio_mixing import select_prepared_mix
-        dub=select_prepared_mix(dub,source)
+        from .mix_background import select_mix_or_dub
+        dub = select_mix_or_dub(state, dub, source)
 
     output = Path(artifact_path("final_video"))
     duration = state.media_info.duration_ms / 1000 if state.media_info else float(video["duration"])

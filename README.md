@@ -2,9 +2,9 @@
 
 七人课程项目，使用 **LangGraph** 协调英文视频转写、翻译审校、中文配音和双语字幕制作。输入本地视频或单条YouTube链接，目标是输出带中文配音、双语字幕的视频，并保留结构化结果供检查和对接。
 
-媒体探测、语音识别、音轨处理和压制由工具完成；理解、翻译、审校和配音稿返工由大模型角色承担。BCDE是职责封装，不将每个媒体工具都称作独立智能体。
+媒体探测、语音识别、音轨处理和压制由工具完成；理解、翻译、审校和配音稿返工由大模型角色承担，不将每个媒体工具都称作独立智能体。
 
-**当前状态（2026-11-17）：** 已接入真实节点，并完成约35分钟双人对谈的本地实验。该实验B/C复用同源真实结果，D/E重新运行，不代表所有环节重新全量推理，也不代表生产、GPU和全部慢测已验收。[跨组改动、主图及接口说明](docs/nodes/localize_video/HANDOFF-20261117.md)
+**当前状态（2026-11-17）：** 已接入真实节点，并完成约35分钟双人对谈的本地实验。该实验B/C复用同源真实结果，D/E重新运行，不代表所有环节重新全量推理，也不代表生产、GPU和全部慢测已验收。
 
 ## 1. 功能与流程
 
@@ -16,17 +16,29 @@
 | 中文配音 | CosyVoice v3 flash；系统音色或预先授权登记的原声复刻音色 |
 | 时长适配 | 按实际音频测量并局部改稿；后期0.95–1.35倍，不裁语音句尾 |
 | 双语字幕 | 配音后生成；中文上、英文下居中，各一行；超宽只在显示阶段顺序分页 |
-| 背景音 | 提供分离、非语言声音回添、混音及来源验证服务；默认主图尚未自动完成全部背景处理 |
+| 背景音 | 由主图 b_environment / mix_background 执行；当前默认模拟这两项，启用真实实现需本地模型 |
 | WebUI | 本地MP4上传、队列、节点配置、日志和字幕查看；当前没有YouTube输入按钮 |
 
 当前代码执行顺序：
 
 ```mermaid
 flowchart LR
-  P[素材探测] --> B[英文转写与说话人] --> C1[分块] --> C2[翻译] --> C3[审校] --> R[定向返工] --> D[中文配音与时长适配] --> E[最终双语字幕] --> V[合成视频]
+  P[probe_input] --> B[asr_diarize]
+  B --> BG[b_environment]
+  B --> C1[build_blocks] --> C2[translate_blocks] --> C3[review_blocks] --> R[repair_blocks] --> D[tts_align] --> E[subtitle_cover]
+  BG --> M[mix_background]
+  E --> M --> V[compose_video]
 ```
 
-节点为`probe_input → asr_diarize → build_blocks → translate_blocks → review_blocks → repair_blocks → tts_align → subtitle_cover → compose_video`。字幕等待最终音轨，避免使用配音返工前的旧稿。共享节点仍为`state: GraphState -> dict`，字段以`contracts/`为准，正式设计同步事项由F维护。
+唯一运行主图为 `project/graph/builder.py`，拓扑以 [workflow.md 第4节](docs/design/workflow.md) 为准。背景链与翻译链并行，混音等待两条链。字幕等待最终音轨，避免使用配音返工前的旧稿。共享节点仍为 `state: GraphState -> dict`，字段以 `contracts/` 为准。增量缺失或失败时回退纯中文配音，未返回本次有效混音状态时不消费磁盘旧混音。
+
+### 主图设计：基础版节点 + 增量节点
+
+主图按“基础版节点 + 增量节点”组织：基础版节点承担主链路；增量节点用于后续增强，在完成“英文视频的字幕与配音”的基础上，提升输出视频的质量。增量节点始终注册并调度，不提供关闭开关。`graph/` 层对增量节点统一加代理：节点抛异常时记 `warning` 并返回空增量，基础版节点仍直接抛出、图终止。节点清单与产物表用“版本归属”列区分基础版/增量。在该设计下，增量节点失败不会拖垮基础版链路，增量返回空增量时基础版行为不变。具体规则见 `docs/design/architecture.md` 第 8 节。边界：代理只保证异常不外抛、不合并返回值，不回滚节点对 State 的原地修改或已写磁盘的半成品。这一设计虽然属于架构治理，但能体现多智能体协作的异常处理和调度思路。
+
+### mocks 模块
+
+`mocks/` 为各节点提供模拟实现：保证结构性正确、不保证结果正确，用占位数据让整条链路在无模型、无密钥时也能跑通；凡是结果可能不对的地方留下可 grep 的 warning，切到 mock 即接受结果不正确。
 
 ## 2. 安装环境
 
@@ -69,7 +81,7 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 
 真实翻译、审校、配音和首次音色创建**可能收费**。只下载视频或打开WebUI不会自动触发这些调用；启动真实节点需要对应凭据。程序不推断余额或实际账单，本地预算可通过`LOCALIZER_BUDGET_FILE`另行配置。
 
-学校`school_bridge`是文件交换通道，需要授权平台工具/操作者处理请求，不是普通终端直接可用的学校API，也不等于自动续跑。[API及桥接说明](docs/nodes/localize_video/HANDOFF-20261117.md)。密钥留在本机，不提交`.env`或音色账户记录。
+学校`school_bridge`是文件交换通道，需要授权平台工具/操作者处理请求，不是普通终端直接可用的学校API，也不等于自动续跑。密钥留在本机，不提交`.env`或音色账户记录。
 
 ### 本地模型
 
@@ -133,14 +145,6 @@ uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events ru
 
 两条`run-input`都会继续运行真实节点，**不是只下载命令**。URL输入拒绝覆盖已有`input.mp4`；重复使用已产出音轨/转写的目录也可能被拒绝。当前基础CLI不保证检查点续跑，重复启动不等于恢复本地实验脚本进度。
 
-可选BCDE组合入口使用相同准备条件：
-
-```powershell
-uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events python -m nodes.localize_video --work-dir jobs/local-demo --input input.mp4
-```
-
-它封装已有节点，不应再接在完整主图后重复执行。[BCDE入口与对接说明](docs/nodes/localize_video/README.md)
-
 ### WebUI
 
 只查看界面：
@@ -161,10 +165,12 @@ uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events py
 
 | 配置文件 | 主要作用 |
 |---|---|
-| `config/mock.toml` | F维护的真实/模拟开关，`true`为模拟，`false`为真实 |
+| `config/mock.toml` | 真实/模拟开关，`true`为模拟，`false`为真实 |
 | `config/asr_diarize.toml` | 英文模型、最长时长、说话人、CPU/CUDA及复核 |
 | `config/translate_blocks.toml` | 翻译风格与术语 |
 | `config/translation_timing.toml` | 建议字数预算，不能代替实际测时 |
+| `config/b_environment.toml` | 本地背景分离与非语言事件恢复；模型路径及CPU/CUDA |
+| `config/mix_background.toml` | 背景混音增益 |
 | `config/tts.toml` | 模型、音色、变速与返工策略 |
 | `config/subtitle_cover.toml` | 最终音轨字幕、双语位置、分片和严格单行 |
 | `config/compose_video.toml` | 输出分辨率与码率 |
@@ -183,15 +189,15 @@ jobs/local-demo/
   logs/         # run.log；WebUI任务另有runner.log
 ```
 
-最终配音文本以`tts/dubbing_script.json`为准，不把`TTSClip.text`标签当成每段音频逐字实录。英文不回译或改写，显示分页不改配音分组。可选背景/混音使用独立音轨和来源回执；普通主图不因存在工具代码就自动执行全部背景分离。[详细产物说明](docs/nodes/localize_video/HANDOFF-20261117.md)
+最终配音文本以`tts/dubbing_script.json`为准，不把`TTSClip.text`标签当成每段音频逐字实录。英文不回译或改写，显示分页不改配音分组。背景/混音使用登记的独立音轨和可选状态回执，由 mock.toml 统一选择真实/模拟实现；缺失增量时维持纯配音。
 
 ## 6. 测试、实验与限制
 
-- 最近合并快测：**499 passed、2 skipped、2 deselected、11 subtests passed**，跳过/未执行项不算通过。
+- 最近合并快测：**515 passed、2 skipped、2 deselected、11 subtests passed**，跳过/未执行项不算通过。
 - 历史35分钟实验：300组新配音、559屏双语单行、0越界，实际0.95–1.35倍；B/C复用同源结果，D/E真实重跑。9组留白、29屏短显示需复听。
 - 自动检查不等于整片人工听音、原声相似度、说话人准确性、逐词对齐或口型验收。背景分离可能漏掉与对白重叠的笑声，也可能残留原语言混响。
 - 默认短稿策略为`error`，无法忠实适配时可能返工或报错；历史实验有警告继续是显式配置，不代表默认无限放慢或静默凑词。
-- 正式设计同步、辅助产物登记、背景自动接入、GPU及旧慢测SDK适配等仍待F与各组推进。[待对接事项](docs/nodes/localize_video/HANDOFF-20261117.md)
+- 背景及混音产物已登记；真实分离质量、GPU、旧慢测SDK适配及其他辅助产物的规范化仍需后续验收。
 
 快测命令不调用真实付费API；真实说话人模型/慢测需另行启用对应依赖、权重与授权：
 

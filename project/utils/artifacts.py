@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from contracts import Segment, TranslatedSegment, TranslationBlock, TTSClip
+from contracts import EnvironmentAudio, MixedAudio, Segment, TranslatedSegment, TranslationBlock, TTSClip
 from pydantic import BaseModel, ConfigDict, model_validator
 
 
@@ -32,6 +32,10 @@ class ArtifactSpec(BaseModel):
 
 
 ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
+    "environment_audio": ArtifactSpec(path="audio/environment.source.json", path_kind="fixed", type_=EnvironmentAudio),
+    "environment_bed": ArtifactSpec(path="audio/environment.wav", path_kind="fixed"),
+    "mixed_audio": ArtifactSpec(path="audio/mixed.mix.json", path_kind="fixed", type_=MixedAudio),
+    "mixed_track": ArtifactSpec(path="audio/mixed.wav", path_kind="fixed"),
     # 结构化 JSON 产物
     "segments": ArtifactSpec(
         path="segments/segments.json", path_kind="fixed", type_=list[Segment]
