@@ -1,0 +1,40 @@
+.env
+.venv/
+.venv-b/
+.venv-uv/
+.venv-community1/
+.venv-community1-gpu/
+.uv-cache/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.vscode/
+.tools/
+jobs/
+media/
+models/
+sources.json
+*.mp4
+!tests/data/asr_diarize/real_dialogue/input.mp4
+*.wav
+*.srt
+*.zip
+*.sqlite*
+*.egg-info/
+/tmp/pdfs/
+/.tools/
+/tmp/b-media-check/
+/tmp/b-pipeline-tests/
+
+# ---------- tests ----------
+.pytest_cache/
+
+# 测试运行时临时产物
+tests/tmp/
+
+# 大文件（完整视频、完整运行产物、大音频），由负责人本地提供
+tests/data/_large/
+
+# 测试可能产生的日志
+tests/**/*.log

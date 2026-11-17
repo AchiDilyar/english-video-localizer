@@ -1,0 +1,46 @@
+{
+  "title": "Interview with Steve Wozniak: 14-second B/C interface sample",
+  "author": "ConversationEDU",
+  "source_url": "https://commons.wikimedia.org/wiki/File:Interview_with_Steve_Wozniak.webm",
+  "youtube_url": "https://www.youtube.com/watch?v=920QAxtook8",
+  "license": "CC BY 3.0",
+  "license_url": "https://creativecommons.org/licenses/by/3.0/",
+  "original_range_ms": [
+    10000,
+    24000
+  ],
+  "sample_duration_ms": 14000,
+  "video_sha256": "5b26540a0e6b8980111c513c62daca00ae26df7a8622afd25adacccfc62848ba",
+  "parent_video_sha256": "63fe8ba567ec3e36eba120162108785d28fb8351c6cc2699a50d8ad07ee4f98f",
+  "sample_video_local": "tests/data/asr_diarize/real_dialogue/input.mp4",
+  "segments_source": "first 11 final sentence rows of B-community1-majority-20261108-01; schema conversion only, not new ASR",
+  "segment_count": 11,
+  "speaker_count": 2,
+  "human_confirmed": false,
+  "new_model_calls": 0,
+  "changes": "Extracted original 10-24 seconds, re-encoded H.264/AAC, machine transcript and anonymous speaker labels converted to shared Segment.",
+  "review_items": [
+    {
+      "segment_id": "seg_0002",
+      "issues": [
+        "possible_fragment_or_elliptical_utterance",
+        "semantic_review_pending"
+      ]
+    },
+    {
+      "segment_id": "seg_0004",
+      "issues": [
+        "possible_fragment_or_elliptical_utterance",
+        "semantic_review_pending"
+      ]
+    },
+    {
+      "segment_id": "seg_0006",
+      "issues": [
+        "audio_recheck_difference_needs_human_review",
+        "possible_fragment_or_elliptical_utterance",
+        "semantic_review_pending"
+      ]
+    }
+  ]
+}

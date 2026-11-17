@@ -1,0 +1,6 @@
+asset_id,purpose,source_kind,source_reference,local_path,authorization_status,authorization_evidence,duration_sec,speakers_expected,content_sha256,notes
+candidate_short,short_single_speaker,local,,,pending,,,,,Replace with an authorized 30-60 second clip
+candidate_main,main_acceptance,local,,,pending,,,,,About 10 minutes; verify same asset for both input modes
+candidate_dual,two_speaker_acceptance,local,,,pending,,,,,About 2-3 minutes; at least 10 speaker handoffs to check
+candidate_30,interruption_stress,local,,,pending,,,,,About 30 minutes; do not run before resource limits are set
+candidate_60,long_stress,local,,,pending,,,,,About 60 minutes; do not run before resource limits are set
