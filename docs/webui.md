@@ -14,9 +14,9 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 ## 运行工作流
 
-在「视频输入」节点选择本地 MP4，再点击「运行工作流」。WebUI 按视频内容去重，将上传文件保存在 `jobs/.inputs/`。每个任务目录里的 `input.mp4` 是指向同一份数据的硬链接。WebUI 随后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。原有 `jobs/webui/` 下的历史任务仍可在队列中查看。 [CLI 文档](cli/README.md)
+在「视频输入」选择本地 MP4 或切换至「YouTube 链接」填写单条视频地址，再点击「运行工作流」。链接会在同一任务内先下载成 input.mp4，随后自动进入翻译、配音、字幕和合成。WebUI 按视频内容去重，将上传文件保存在 `jobs/.inputs/`。每个任务目录里的 `input.mp4` 是指向同一份数据的硬链接。WebUI 随后以独立进程调用团队的 `run-input` 同一入口（`python -m cli --work-dir <任务目录> --input input.mp4`）。CLI 负责初始化工作目录和日志、构造 `GraphState` 并运行 LangGraph。模型、节点选择和产物由后端约定决定。原有 `jobs/webui/` 下的历史任务仍可在队列中查看。 [CLI 文档](cli/README.md)
 
-每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。现有 CLI 没有逐节点进度事件，因此工作台根据磁盘上的正式产物更新状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `logs/runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
+每次执行一个任务，上传上限 2 GiB。工作台显示运行状态和已生成的节点产物。新任务通过 CLI 的 --report-progress 记录 LangGraph 实际节点事件，可显示并行节点和空增量；历史任务没有该日志时兼容按正式产物显示就绪状态。底部「后端控制台」实时读取 CLI 的 stdout 和 stderr（任务目录中的 `logs/runner.log`）。任务队列也可以打开历史任务的后端日志。「清空」只清除当前显示，磁盘保留完整日志。
 
 每张节点卡片显示后端配置的运行模式。「模拟」和「真实」分别对应 `config/mock.toml` 中的 `true` 和 `false`。「字幕压制准备」对应主图的 `subtitle_cover`。CLI 在运行开始时把同一配置下的节点模式写到终端和任务日志。 右键节点卡片可单独切换模式，聚焦节点标题后也可按 Shift+F10。卡片上的标记显示当前模式。模拟节点的卡片、步骤按钮和导航图使用中性灰。模拟卡片还会显示强调色提示「模拟节点：此处配置不影响运行结果」。保存会更新本机仓库的共享配置，下次运行生效。工作台检查真实实现和上游模式，并在任务运行时禁用切换。
 
@@ -24,7 +24,7 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 
 ## 字幕查看
 
-在工作流中选好本地 MP4 后，切到顶部「字幕查看」即可播放源视频。运行时会关联当前任务，右侧默认显示断句后的英文、首次翻译和反思式终版。有首次分句文件的历史任务还会显示「首次分句」。点击字幕块会跳到它的开始时间。播放和拖动进度条会高亮当前字幕，勾选「跟随播放」时列表也会自动滚动。
+在工作流中选好本地 MP4，或链接任务完成原片下载后，切到顶部「字幕查看」即可播放源视频。运行时会关联当前任务，右侧默认显示断句后的英文、首次翻译和反思式终版。有首次分句文件的历史任务还会显示「首次分句」。点击字幕块会跳到它的开始时间。播放和拖动进度条会高亮当前字幕，勾选「跟随播放」时列表也会自动滚动。
 
 | 阶段 | 读取来源 |
 | --- | --- |
@@ -60,7 +60,9 @@ uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 | `build_blocks` | 只读展示正式分块跨度和默认术语表，沿用转写节点已生成的英文分段。 |
 | `translate_blocks`、`review_blocks` | 只读展示同一份 DeepSeek 模型及请求超时。模型由 `DEEPSEEK_MODEL` 环境变量或本地 `.env` 提供。 |
 | `subtitle_cover` | 选择默认样式、高对比底框、宋体细描边或简约精致，以及仅译文、双语译文在上或双语译文在下。480p、720p、1080p、1440p、2160p 档位按导出画面高度自动匹配。 |
-| `tts_align` | 卡片展示主图节点与运行模式。 |
+| `tts_align` | 只读展示配音模型、音色方式、播放速度范围与顺延等实际配置。 |
+| `b_environment` | 编辑分离/非语言事件模型目录、设备、事件阈值与声音增益。 |
+| `mix_background` | 编辑背景混音增益；没有有效环境音时基础流程继续。 |
 | `compose_video` | 在 `config/compose_video.toml` 中设置输出分辨率与视频码率档位，CLI 和 WebUI 共用。默认沿用源分辨率，并以源视频流平均码率为编码目标。选定分辨率后，ASS 档位随导出画面高度匹配。配音为模拟时使用源视频原声。 |
 
 字幕风格、语言排布和渐入渐出在选择后自动保存到 `config/subtitle_cover.toml`。渐入渐出默认关闭，开启后淡入和淡出各 120 毫秒。手动编辑该文件后，刷新页面即可加载新值。各节点的可编辑配置在选项切换或输入框失焦后自动保存。配置由 CLI 和 WebUI 的后续真实任务共用。节点模式独立保存到 `config/mock.toml`。工作台执行期间锁定配置写入。模型密钥保留在本机 `.env`。
@@ -85,3 +87,25 @@ NODE_PATH="$localizer_test_dir/node_modules" node tests/webui.spec.cjs
 ```
 
 测试要求本地服务已启动。选择其他端口时设置 `WEBUI_URL=http://127.0.0.1:8766`。可选 `WEBUI_SCREENSHOT` 指定 PNG 文件位置，测试会另外保存移动端截图。不需要配置任何模型密钥。
+
+
+## 2026-11-17：链接到成片与主图节点对齐
+
+运行入口仍是唯一的 F 主图，不新增图。界面从 `/api/workflow-schema` 获取11个节点、主图边以及增量名单；节点卡片增加 B/C/D/E 归属与基础版/增量标识。新增 b_environment、mix_background 的中文名称、默认布局及实际参数；定向返工显示模型配置，配音节点只读展示音色方式与变速范围。
+
+使用方法：在「视频输入」选择「YouTube 链接」，粘贴单条原视频地址，点击顶部「运行」。后端创建同一个任务目录，通过标准 CLI 下载到 input.mp4，再自动运行探测、转写、翻译审校、配音、字幕、混音和合成。下载是入图准备，不伪造一个主图节点。下载完成后可预览原视频；成片生成后在节点输出或任务队列下载 MP4。本地 MP4 上传仍可用。工作台默认端口8765；`--port 8766` 可启动另一实例。
+
+接口：
+
+- `POST /api/workflow-runs`，`application/json`，请求体 `{"url":"https://www.youtube.com/watch?v=..."}`；返回202及 job_id。
+- 同一路径继续接受 `application/octet-stream` 本地文件上传。
+- `GET /api/workflow-runs/{id}`：下载/主图阶段、active_nodes、node_states、completed_nodes、input_ready 和 final_video_ready。
+- `GET /api/workflow-runs/{id}/logs`：控制台；`/preview-video`：下载完成后的原片；`/final-video`：可下载成片。
+
+只接受现有下载器支持的单条 YouTube 链接；无效地址、播放列表和任意第三方文件地址在入队前拒绝。下载失败会明确显示失败并释放任务锁，可提交下一项。下载器既有时长、体积和超时限制不变。
+
+运行进度来自同一个 LangGraph 的 tasks 事件：WebUI 调用 `python -m cli ... --report-progress`，CLI 将节点名、开始/结束、时间及是否有增量写入 logs/node-progress.jsonl；不记录输入台词、模型正文或凭据，不更改 GraphState/业务产物。可同时展示背景节点与翻译节点运行。增量返回空增量时显示「未产生增量 · 基础流程继续」，不根据残留文件误报成功。普通 run-input 不带该参数时保持原调用行为。
+
+真实运行仍需安装对应 uv extras，准备 Whisper/Community-1/字幕定位模型，配置翻译服务、配音 API 和所选音色；默认 cloned 音色需当前视频说话人的授权音色记录。链接输入不会自动生成新说话人的克隆授权或账号记录。模型和密钥按项目 README 配置，密钥不通过网页提交。
+
+验证：528 passed、2 skipped、2 deselected、11 subtests passed（18.04秒），日志 tests/tmp/webui-full-20261117.log。测试覆盖链接校验、任务冲突、节点并行进度、增量空返回、下载失败，以及 HTTP提交→标准CLI→F主图→实际FFmpeg音视频与字幕合成→成片下载。识别、翻译、配音和下载在该联通测试中使用固定替身，不是重新完成整片真实模型验收；本轮付费API调用0。页面实测已核对11节点、参数、链接切换与无效链接错误提示。旧 Playwright 全量脚本仅同步拓扑断言，本轮未执行该脚本。

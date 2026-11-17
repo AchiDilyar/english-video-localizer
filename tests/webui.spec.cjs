@@ -39,12 +39,13 @@ const base = process.env.WEBUI_URL || 'http://127.0.0.1:8765';
     assert.deepEqual(await page.locator('.link').evaluateAll(wires =>
       wires.map(wire => [wire.dataset.from, wire.dataset.to])), graph.edges);
     assert.deepEqual(graph.nodes, [
-      'probe_input', 'asr_diarize', 'build_blocks', 'translate_blocks', 'review_blocks',
-      'tts_align', 'subtitle_cover', 'compose_video',
+      'probe_input', 'asr_diarize', 'b_environment', 'build_blocks', 'translate_blocks', 'review_blocks',
+      'repair_blocks', 'tts_align', 'subtitle_cover', 'mix_background', 'compose_video',
     ]);
-    assert.deepEqual(graph.edges.slice(4), [
-      ['review_blocks', 'tts_align'], ['review_blocks', 'subtitle_cover'],
-      ['tts_align', 'compose_video'], ['subtitle_cover', 'compose_video'],
+    assert.deepEqual(graph.edges.slice(5), [
+      ['review_blocks', 'repair_blocks'], ['repair_blocks', 'tts_align'],
+      ['tts_align', 'subtitle_cover'], ['subtitle_cover', 'mix_background'],
+      ['b_environment', 'mix_background'], ['mix_background', 'compose_video'],
     ]);
     const modeResponse = await page.request.get(new URL('/api/workflow-modes', base).href);
     assert.equal(modeResponse.ok(), true);

@@ -26,7 +26,7 @@ function renderDetail() {
   detail.hidden = !job;
   if (!job) return;
   const status = states[job.state] ?? '未知';
-  const node = nodeNames.get(job.node) ?? job.node;
+  const node = job.phase === 'download' ? '下载原视频' : nodeNames.get(job.node) ?? job.node;
   detail.append(el('h3', '任务详情'),
     el('p', [status, node].filter(Boolean).join(' · '), 'task-detail-state'));
   if (job.message) detail.append(el('p', job.message));
@@ -36,6 +36,7 @@ function renderDetail() {
   detail.append(el('code', job.id));
   const open = el('button', job.english_srt_ready || job.english_segments_ready ? '查看视频与字幕' : '查看源视频');
   open.type = 'button';
+  open.disabled = job.input_ready === false;
   open.onclick = () => {
     $('node-inspector').close();
     openTaskSubtitles(job.id);

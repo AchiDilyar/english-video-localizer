@@ -1,6 +1,7 @@
 """Check artifact-based workflow status for the SRT preparation stage."""
 
 import sys
+import json
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,29 @@ from utils.artifacts import ARTIFACT_SPECS
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from serve_workflow_ui import WorkflowServer, save_job_input, write_status  # noqa: E402
+
+
+def test_status_tracks_parallel_nodes_and_empty_increments(tmp_path):
+    server = SimpleNamespace(active_job=tmp_path.name)
+    (tmp_path / 'logs').mkdir()
+    write_status(tmp_path, state='running', phase='workflow')
+    events = [
+        {'node':'b_environment','event':'started'},
+        {'node':'build_blocks','event':'started'},
+    ]
+    path=tmp_path/'logs/node-progress.jsonl'
+    path.write_text(''.join(json.dumps(event)+'\n' for event in events))
+    status=WorkflowServer.read_run_status(server,tmp_path)
+    assert set(status['active_nodes'])=={'b_environment','build_blocks'}
+    # A left-over receipt does not prove the incremental completed in this run.
+    (tmp_path/'audio').mkdir()
+    (tmp_path/'audio/environment.source.json').write_text('{}')
+    events.append({'node':'b_environment','event':'finished','has_output':False})
+    path.write_text(''.join(json.dumps(event)+'\n' for event in events)+'{"partial":')
+    status=WorkflowServer.read_run_status(server,tmp_path)
+    assert status['node_states']['b_environment']=='no_output'
+    assert 'b_environment' not in status['completed_nodes']
+    assert status['active_nodes']==['build_blocks']
 
 
 def test_duplicate_uploads_share_one_video(tmp_path):

@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile
 
 from graph.builder import WORKFLOW_EDGES
 from graph.registry import NODE_NAMES, node_modes_from_flags
+from graph.incremental import INCREMENTAL_NODE_NAMES
 
 
 class ConfigChanged(Exception):
@@ -44,6 +45,7 @@ def save_modes(path: Path, payload: dict) -> dict:
     for source, target in WORKFLOW_EDGES:
         upstream = source if isinstance(source, tuple) else (source,)
         missing = [name for name in upstream if requested[name] == "mock"
+                   and name not in INCREMENTAL_NODE_NAMES
                    and (target, name) != ("compose_video", "tts_align")]
         if requested[target] == "real" and missing:
             raise ValueError(f"{target} 需要启用真实上游节点：{', '.join(missing)}。")

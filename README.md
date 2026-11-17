@@ -17,7 +17,7 @@
 | 时长适配 | 按实际音频测量并局部改稿；后期0.95–1.35倍，不裁语音句尾 |
 | 双语字幕 | 配音后生成；中文上、英文下居中，各一行；超宽只在显示阶段顺序分页 |
 | 背景音 | 由主图 b_environment / mix_background 执行；当前默认模拟这两项，启用真实实现需本地模型 |
-| WebUI | 本地MP4上传、队列、节点配置、日志和字幕查看；当前没有YouTube输入按钮 |
+| WebUI | 本地MP4或YouTube链接输入；下载后自动接主图，显示11个节点、并行进度、日志、字幕及成片下载 |
 
 当前代码执行顺序：
 
@@ -153,7 +153,7 @@ uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events ru
 uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
 ```
 
-打开`http://127.0.0.1:8765/`。若要实际运行完整流程，在完成全部准备后用完整依赖启动：
+打开`http://127.0.0.1:8765/`。在「视频输入」切换到「YouTube 链接」，填入原片地址并点击「运行」，下载完成后自动进入翻译、配音、字幕和合成；也可继续上传本地MP4。若要实际运行完整流程，在完成全部准备后用完整依赖启动：
 
 ```powershell
 uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events python scripts/serve_workflow_ui.py
@@ -193,7 +193,7 @@ jobs/local-demo/
 
 ## 6. 测试、实验与限制
 
-- 最近合并快测：**515 passed、2 skipped、2 deselected、11 subtests passed**，跳过/未执行项不算通过。
+- 最近合并快测：**528 passed、2 skipped、2 deselected、11 subtests passed**，跳过/未执行项不算通过。
 - 历史35分钟实验：300组新配音、559屏双语单行、0越界，实际0.95–1.35倍；B/C复用同源结果，D/E真实重跑。9组留白、29屏短显示需复听。
 - 自动检查不等于整片人工听音、原声相似度、说话人准确性、逐词对齐或口型验收。背景分离可能漏掉与对白重叠的笑声，也可能残留原语言混响。
 - 默认短稿策略为`error`，无法忠实适配时可能返工或报错；历史实验有警告继续是显式配置，不代表默认无限放慢或静默凑词。

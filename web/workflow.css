@@ -2371,6 +2371,13 @@ body {
 }
 
 /* Blur floating UI only. Node cards and long subtitle lists stay cheap to pan. */
+.source-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.source-tabs button { flex: 1; }
+.source-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.source-url-label { display: grid; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.source-url { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; }
+.source-picker .connection-note { white-space: normal; line-height: 1.6; }
+
 :where(.viewport-controls, .minimap-wrap, dialog, #node-mode-menu) {
   -webkit-backdrop-filter: saturate(145%) blur(18px);
   backdrop-filter: saturate(145%) blur(18px);

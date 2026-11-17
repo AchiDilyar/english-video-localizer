@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
 from graph.registry import NODE_NAMES
+from graph.incremental import INCREMENTAL_NODE_NAMES
+from nodes.asr_diarize.pipeline.video_inputs import youtube_url
 from subtitle_preview import subtitle_stage
 from utils.artifacts import ARTIFACT_SPECS
 from workflow_modes import ConfigChanged, mode_snapshot, save_modes
@@ -48,10 +50,38 @@ NODE_ARTIFACTS = {
     "build_blocks": "blocks",
     "translate_blocks": "translated_blocks",
     "review_blocks": "reviewed_blocks",
+    "repair_blocks": "repaired_blocks",
     "tts_align": "dub_audio",
     "subtitle_cover": "burnin_subtitle",
     "compose_video": "final_video",
 }
+
+
+def node_progress(job: Path) -> dict:
+    """Only telemetry is read here; file existence alone cannot prove an incremental succeeded."""
+    states = {}
+    path = job / "logs" / "node-progress.jsonl"
+    if not path.is_file():
+        return states
+    with path.open(encoding="utf-8") as source:
+        for line in source:
+            try:
+                event = json.loads(line)
+                name = event["node"]
+                if name not in NODE_NAMES:
+                    continue
+                kind = event["event"]
+                if kind == "started":
+                    states[name] = "running"
+                elif kind == "failed":
+                    states[name] = "failed"
+                elif kind == "finished":
+                    states[name] = ("no_output" if name in INCREMENTAL_NODE_NAMES
+                                    and not event.get("has_output") else "complete")
+            except (ValueError, KeyError, TypeError):
+                # The worker may currently be appending the last line.
+                continue
+    return states
 
 
 def write_status(job: Path, **status) -> None:
@@ -126,6 +156,10 @@ class WorkflowServer(ThreadingHTTPServer):
         if artifacts.get("english_srt") == "english.srt" or status["state"] == "complete":
             status["english_srt_ready"] = (job / "b" / "english.srt").is_file()
         completed = {node for node, artifact in NODE_ARTIFACTS.items() if artifact_ready(job, artifact)}
+        progress = node_progress(job)
+        status["node_states"] = progress
+        status["active_nodes"] = [node for node in NODE_NAMES if progress.get(node) == "running"]
+        status["input_ready"] = (job / "input.mp4").is_file()
         status["subtitle_srt_ready"] = all(artifact_ready(job, name) for name in SUBTITLE_SRT_ARTIFACTS)
         recorded = set(status.get("completed_nodes", []))
         recorded.discard("subtitle_cover")
@@ -135,6 +169,13 @@ class WorkflowServer(ThreadingHTTPServer):
             elif status["subtitle_srt_ready"]:
                 status["message"] = "三份 SRT 已生成，烧录字幕 ASS 尚未生成。"
         status["completed_nodes"] = [node for node in NODE_NAMES if node in recorded or node in completed]
+        if progress:
+            status["completed_nodes"] = [node for node in NODE_NAMES if progress.get(node) == "complete"]
+            status["node"] = next((node for node in NODE_NAMES if progress.get(node) == "failed"),
+                                  next(iter(status["active_nodes"]), None))
+            if status["state"] == "running":
+                status["phase"] = "workflow"
+                status["message"] = "正在执行主图节点：" + "、".join(status["active_nodes"])
         if status.get("node") not in NODE_NAMES:
             status.pop("node", None)
         status.pop("final_zip_ready", None)
@@ -183,6 +224,9 @@ class WorkflowServer(ThreadingHTTPServer):
                 "english_segments_ready": status["english_segments_ready"],
                 "final_video_ready": status["final_video_ready"],
                 "completed_nodes": status.get("completed_nodes", []),
+                "node_states": status.get("node_states", {}),
+                "input_ready": status.get("input_ready", False),
+                "phase": status.get("phase"),
             })
         return {
             "jobs": result,
@@ -198,9 +242,12 @@ class WorkflowServer(ThreadingHTTPServer):
 
     def run_workflow(self, job: Path) -> None:
         # Use the same module as run-input in a separate process for each task.
-        command = [sys.executable, "-u", "-m", "cli", "--work-dir", str(job), "--input", "input.mp4"]
         log_path = job / "logs" / "runner.log"
         try:
+            metadata = json.loads((job / "web-run.json").read_text(encoding="utf-8"))
+            source = metadata.get("source_url") or "input.mp4"
+            command = [sys.executable, "-u", "-m", "cli", "--work-dir", str(job),
+                       "--input", source, "--report-progress"]
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("wb") as log:
                 run = subprocess.run(
@@ -218,7 +265,7 @@ class WorkflowServer(ThreadingHTTPServer):
                 )
         except subprocess.TimeoutExpired:
             write_status(job, state="failed", message="工作流超过 3 小时，任务已停止。")
-        except OSError:
+        except (OSError, ValueError):
             write_status(job, state="failed", message="无法启动工作流或写入任务文件。")
         finally:
             self.active_job = None
@@ -461,16 +508,27 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.start_workflow()
 
     def start_workflow(self) -> None:
-        if self.headers.get_content_type() != "application/octet-stream":
-            self.send_json({"message": "请选择一个本地 MP4 文件。"}, 415)
+        kind = self.headers.get_content_type()
+        if kind not in ("application/octet-stream", "application/json"):
+            self.send_json({"message": "请上传 MP4 或提交 YouTube 链接。"}, 415)
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             size = 0
-        if not 0 < size <= MAX_UPLOAD:
+        if not 0 < size <= (4096 if kind == "application/json" else MAX_UPLOAD):
             self.send_json({"message": "文件不能为空，且大小不能超过 2 GiB。"}, 413)
             return
+        url = None
+        if kind == "application/json":
+            try:
+                payload = json.loads(self.rfile.read(size))
+                if not isinstance(payload, dict) or set(payload) != {"url"} or not isinstance(payload["url"], str):
+                    raise ValueError("invalid input")
+                url = youtube_url(payload["url"].strip())
+            except (ValueError, TypeError, RuntimeError):
+                self.send_json({"message": "请输入单条有效的 YouTube 视频链接。"}, 400)
+                return
         if not self.server.worker_lock.acquire(blocking=False):
             self.send_json({"message": "本机已有工作流任务在运行，请等它完成。"}, 409)
             return
@@ -478,17 +536,20 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         job = self.server.jobs / uuid4().hex
         try:
             job.mkdir(parents=True, exist_ok=False)
-            save_job_input(self.rfile, size, job)
-            filename = unquote(self.headers.get("X-Video-Name", "")[:4096])
+            if url is None:
+                save_job_input(self.rfile, size, job)
+            filename = ("YouTube · " + url.rsplit("=", 1)[-1] if url else
+                        unquote(self.headers.get("X-Video-Name", "")[:4096]))
             filename = re.split(r"[/\\]", filename)[-1]
             filename = "".join(character for character in filename if character.isprintable())[:180]
             (job / "web-run.json").write_text(
-                json.dumps({"filename": filename, "created_at": time()},
+                json.dumps({"filename": filename, "created_at": time(), "source_url": url},
                            ensure_ascii=False),
                 encoding="utf-8",
             )
             self.server.active_job = job.name
-            write_status(job, state="running", message="正在执行后端工作流。")
+            write_status(job, state="running", phase="download" if url else "workflow",
+                         message="正在下载原视频，完成后自动翻译与配音。" if url else "正在执行后端工作流。")
             Thread(target=self.server.run_workflow, args=(job,), daemon=True).start()
         except (OSError, RuntimeError):
             shutil.rmtree(job, ignore_errors=True)

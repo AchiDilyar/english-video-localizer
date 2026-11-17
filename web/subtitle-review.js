@@ -120,8 +120,8 @@ function setVideo(url, label) {
 export function setPreviewInput(file) {
   changeJob(null);
   if (objectUrl) URL.revokeObjectURL(objectUrl);
-  objectUrl = URL.createObjectURL(file);
-  setVideo(objectUrl, file.name);
+  objectUrl = file ? URL.createObjectURL(file) : null;
+  setVideo(objectUrl, file?.name ?? '链接视频下载完成后可预览');
   setStage('segmented');
 }
 

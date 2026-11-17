@@ -22,30 +22,38 @@ export const categories = {
 const presentation = {
   probe_input: ['视频输入', 'source', '输入视频', '媒体信息'],
   asr_diarize: ['转写与说话人', 'source', '输入视频', '英文分段'],
+  b_environment: ['背景分离与非语言声音', 'audio', '原视频与英文分段', '环境音与来源回执'],
   build_blocks: ['翻译分块与术语', 'language', '英文分段', '翻译块与术语表'],
   translate_blocks: ['翻译智能体', 'language', '翻译块', '初译中文字幕'],
   review_blocks: ['审校智能体', 'language', '初译结果', '审校后中文字幕'],
   repair_blocks: ['定向返工', 'language', '审校结果', '修复结果'],
   tts_align: ['配音与对齐', 'audio', '审校结果', '配音音轨'],
   subtitle_cover: ['字幕压制准备', 'media', '审校译文、英文分段与画面尺寸', '三份 SRT 与烧录 ASS'],
+  mix_background: ['背景与中文配音混音', 'audio', '环境音与最终中文配音', '混合音轨与来源回执'],
   compose_video: ['合成视频', 'media', '源视频、烧录字幕与音轨', '成片 MP4'],
 };
 
 const initialLayout = {
   probe_input: [-828.67, 149.25, 333],
   asr_diarize: [-151.18, 132.66, 362],
+  b_environment: [404.75, 720, 350],
   build_blocks: [404.75, 82.72, 423],
   translate_blocks: [987.59, 95.95, 429],
   review_blocks: [1508.67, 108.94, 282],
   repair_blocks: [1800, 430, 282],
   tts_align: [2095.30, -338.91, 282],
   subtitle_cover: [2564.34, 171.28, 282],
-  compose_video: [2992.75, -314.62, 282],
+  mix_background: [3040, 171.28, 320],
+  compose_video: [3520, 171.28, 282],
 };
 
 export const schema = graph.nodes.map((id, index) => {
   const [title, category, input, output] = presentation[id] ?? [id, 'media', '上游输入', '节点输出'];
-  return { id, title, category, input, output, symbol: String(index + 1).padStart(2, '0') };
+  const role = ['probe_input', 'asr_diarize', 'b_environment'].includes(id) ? 'B'
+    : ['build_blocks', 'translate_blocks', 'review_blocks', 'repair_blocks'].includes(id) ? 'C'
+    : id === 'tts_align' ? 'D' : 'E';
+  return { id, title, category, input, output, role, incremental: graph.incremental_nodes?.includes(id),
+    symbol: String(index + 1).padStart(2, '0') };
 });
 export const edges = graph.edges;
 

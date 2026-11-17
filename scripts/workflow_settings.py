@@ -9,6 +9,9 @@ from pathlib import Path
 from dotenv import dotenv_values
 from graph.builder import WORKFLOW_EDGES
 from graph.registry import NODE_NAMES
+from graph.incremental import INCREMENTAL_NODE_NAMES
+from nodes.b_environment import EnvironmentOptions
+from nodes.mix_background import MixOptions
 from nodes.asr_diarize.node import ASROptions
 from nodes.build_blocks import DEFAULT_TERMINOLOGY, MAX_BLOCK_SPAN_MS
 from nodes.compose_settings import BITRATE_LABELS, RESOLUTION_LABELS, ComposeOptions
@@ -19,6 +22,8 @@ from subtitle_templates import LAYOUTS, STYLES
 from workflow_modes import ConfigChanged, replace_config
 
 OPTIONS = {
+    "b_environment": EnvironmentOptions,
+    "mix_background": MixOptions,
     "probe_input": ProbeOptions,
     "asr_diarize": ASROptions,
     "subtitle_cover": SubtitleCoverOptions,
@@ -29,6 +34,7 @@ READ_ONLY = {"community1_python"}
 # still accept them so existing TOML values stay intact.
 HIDDEN_FIELDS = {"probe_input": frozenset({"ffprobe", "ffmpeg"})}
 CHOICES = {
+    "device": ["cpu", "cuda"],
     "community1_device": ["cpu", "cuda"],
     "semantic_provider": ["none", "deepseek"],
     "style": list(STYLES),
@@ -47,6 +53,7 @@ CHOICE_LABELS = {
 def workflow_schema() -> dict:
     return {
         "nodes": NODE_NAMES,
+        "incremental_nodes": list(INCREMENTAL_NODE_NAMES),
         "edges": [
             [name, target]
             for source, target in WORKFLOW_EDGES
@@ -90,11 +97,17 @@ def read_settings(config_dir: Path, node: str) -> dict:
         return {"fixed": {
             "max_block_span_ms": MAX_BLOCK_SPAN_MS, "default_terminology": DEFAULT_TERMINOLOGY,
         }}
-    if node in ("translate_blocks", "review_blocks"):
+    if node in ("translate_blocks", "review_blocks", "repair_blocks"):
         return {"fixed": {
             "model": text_model_name(dotenv_values(text_model_env()).get("DEEPSEEK_MODEL")),
             "timeout_sec": REQUEST_TIMEOUT_SEC,
         }}
+    if node == "tts_align":
+        config = tomllib.loads((config_dir / "tts.toml").read_text(encoding="utf-8"))
+        return {"fixed": {key: config[key] for key in (
+            "model", "voice_mode", "min_speed", "max_speedup", "natural_groups",
+            "max_forward_delay_ms", "short_audio_policy"
+        ) if key in config}}
     return {"fixed": {}}
 
 

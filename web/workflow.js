@@ -20,6 +20,8 @@ const elements = new Map();
 let backendModes = {};
 let runResult = null;
 let inputVideo = null;
+let inputMode = 'file';
+let youtubeUrl = '';
 let config = defaults();
 let anchors = {};
 let selected = 'probe_input';
@@ -173,6 +175,36 @@ function svg(tag, attributes = {}) {
   return element;
 }
 function videoPicker() {
+  const picker = el('div', 'source-picker');
+  const tabs = el('div', 'source-tabs');
+  for (const [mode, title] of [['file', '本地 MP4'], ['youtube', 'YouTube 链接']]) {
+    const tab = el('button', '', title);
+    tab.type = 'button';
+    tab.disabled = busy;
+    tab.setAttribute('aria-pressed', String(inputMode === mode));
+    tab.onclick = () => {
+      inputMode = mode;
+      if (mode === 'youtube') setPreviewInput(null);
+      else if (inputVideo) setPreviewInput(inputVideo);
+      renderNodes();
+      draw();
+    };
+    tabs.append(tab);
+  }
+  picker.append(tabs);
+  if (inputMode === 'youtube') {
+    const label = el('label', 'source-url-label', '原视频链接');
+    const input = el('input', 'source-url');
+    input.type = 'url';
+    input.placeholder = 'https://www.youtube.com/watch?v=…';
+    input.value = youtubeUrl;
+    input.disabled = busy;
+    input.setAttribute('aria-label', 'YouTube 视频链接');
+    input.oninput = () => { youtubeUrl = input.value; };
+    label.append(input);
+    picker.append(label, el('p', 'connection-note', '点击顶部运行：下载后自动完成翻译、配音、字幕与成片。'));
+    return picker;
+  }
   const row = el('div', 'video-input-picker');
   const button = el('button', '', '选择视频');
   button.type = 'button';
@@ -181,7 +213,8 @@ function videoPicker() {
   const name = el('span', '', inputVideo?.name ?? '未选择 MP4');
   name.title = name.textContent;
   row.append(button, name);
-  return row;
+  picker.append(row);
+  return picker;
 }
 
 function updateNodeMode(card, nodeId) {
@@ -365,7 +398,7 @@ function renderNodes() {
     handle.title = '拖动调整节点尺寸，也可使用方向键';
     handle.setAttribute('aria-label', `调整${node.title}尺寸`);
     handle.addEventListener('keydown', event => resizeWithKeyboard(event, node.id));
-    card.append(header, el('div', 'node-id', node.id), ports, fields, footer, handle);
+    card.append(header, el('div', 'node-id', `${node.id} · ${node.role}组 · ${node.incremental ? '增量' : '基础版'}`), ports, fields, footer, handle);
     updateNodeMode(card, node.id);
     card.addEventListener('focusin', () => { if (selected !== node.id) selectNode(node.id); });
     card.addEventListener('click', event => {
@@ -396,6 +429,15 @@ const configLabels = {
   semantic_max_calls: '语义复核调用上限', model: 'DeepSeek 模型',
   timeout_sec: '请求超时（秒）', max_block_span_ms: '翻译块跨度上限（毫秒）',
   default_terminology: '默认术语表', style: '字幕风格', layout: '语言排布',
+  event_model_dir: '非语言事件模型目录', device: '分离设备',
+  restore_nonverbal: '保留笑声等非语言声音', event_threshold: '事件识别阈值',
+  speech_guard_sec: '对白保护间隔（秒）', nonverbal_gain: '非语言声音增益',
+  background_gain: '背景音增益', voice_mode: '音色方式', min_speed: '最低播放速度',
+  max_speedup: '最高播放速度', natural_groups: '按自然语义组配音',
+  max_forward_delay_ms: '允许向后顺延（毫秒）', short_audio_policy: '短音频处理策略',
+  timing_source: '字幕时间依据', speech_model_dir: '中文语音定位模型',
+  paginate: '字幕分页', semantic_pairing: '双语分段匹配', strict_single_line: '严格单行',
+  display_font_path: '字幕字体路径',
 };
 const backendSettings = new Map();
 const savingSettings = new Set();
@@ -487,7 +529,9 @@ function renderSettings(content, node, settings) {
       const display = typeof value === 'object'
         ? Object.entries(value).map(([en, zh]) => `${en} → ${zh}`).join('、')
         : String(value);
-      content.append(configRow(key, display));
+      const row = configRow(key, display);
+      if (node.id === 'tts_align' && key === 'model') row.firstElementChild.textContent = '配音模型';
+      content.append(row);
     }
     return;
   }
@@ -509,7 +553,9 @@ function renderSettings(content, node, settings) {
     const input = settingControl(field);
     row.classList.toggle('bool', field.type === 'boolean');
     row.classList.toggle('numeric', input.type === 'number');
-    row.append(el('span', 'param-label', configLabels[field.key] ?? field.key), input);
+    const label = field.key === 'model_dir' && node.id === 'b_environment' ? '背景分离模型目录' : configLabels[field.key] ?? field.key;
+    input.setAttribute('aria-label', label);
+    row.append(el('span', 'param-label', label), input);
     fields.append(row);
     inputs.push([input, field]);
   }
@@ -701,7 +747,8 @@ function draw() {
   $('canvas').style.backgroundPosition = `${camera.x}px ${camera.y}px`;
   const activeNode = runResult?.state === 'running' ? runResult.node : null;
   for (const button of $('step-strip').children) {
-    button.classList.toggle('is-active', button.dataset.step === activeNode);
+    button.classList.toggle('is-active', runResult?.state === 'running' &&
+      (runResult.active_nodes ?? [activeNode]).includes(button.dataset.step));
     if (button.dataset.step === selected) button.setAttribute('aria-current', 'step');
     else button.removeAttribute('aria-current');
   }
@@ -717,16 +764,20 @@ function draw() {
     item.classList.toggle('selected', selected === node.id);
     item.classList.toggle('collapsed', collapsed);
     const isCurrent = runResult?.node === node.id;
-    const running = node.id === activeNode;
+    const running = runResult?.state === 'running' && (runResult.active_nodes ?? [activeNode]).includes(node.id);
     const failed = isCurrent && ['blocked', 'failed'].includes(runResult.state);
     const done = runResult?.completed_nodes?.includes(node.id);
     let label = '等待运行';
+    if (node.id === 'probe_input' && runResult?.phase === 'download' && runResult?.state === 'running') label = '下载原视频 · 入图准备';
     if (done) label = node.id === 'asr_diarize' ? '英文分段已就绪' : '已完成';
+    const noOutput = runResult?.node_states?.[node.id] === 'no_output';
+    if (noOutput) label = '未产生增量 · 基础流程继续';
     if (running) label = '正在运行';
     if (failed) label = runResult.state === 'blocked' ? '尚未接入 · 已停止' : '执行失败';
     item.classList.toggle('is-active', running);
     item.classList.toggle('is-done', !!done);
     item.classList.toggle('is-blocked', failed);
+    item.classList.toggle('is-returned', noOutput);
     item.querySelector('.node-state').textContent = label;
   }
   anchorHint.setAttribute('visibility', 'hidden');
@@ -1084,7 +1135,9 @@ document.addEventListener('open-task-log', event => {
 
 function updateOutput() {
   let output = `${index.get(selected).title}尚无运行输出。`;
-  if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
+  if (selected === 'probe_input' && runResult?.phase === 'download') output = runResult.message;
+  else if (runResult?.node_states?.[selected] === 'no_output') output = '本次未发布增量产物，基础流程继续运行。详情见后端日志。';
+  else if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
   else if (selected === 'asr_diarize' && runResult?.english_segments_ready) output = '英文分段已就绪。';
   else if (selected === 'subtitle_cover' && runResult?.completed_nodes?.includes(selected)) {
     output = '烧录字幕 subtitles/burnin.ass 已生成。';
@@ -1130,7 +1183,7 @@ function showRunResult(status) {
   runStatus.dataset.state = status.state;
   const labels = { running: '工作流运行中…', blocked: '工作流已停止',
     failed: '工作流执行失败', complete: '工作流已完成' };
-  runStatus.textContent = labels[status.state];
+  runStatus.textContent = status.state === 'running' && status.phase === 'download' ? '正在下载原视频…' : labels[status.state];
   updateLogNotice();
   const preview = elements.get('asr_diarize')?.querySelector('.node-preview-content');
   if (preview) renderPreview(preview);
@@ -1152,10 +1205,10 @@ function setRunLock(locked) {
 
 $('run').onclick = async () => {
   if (busy || savingSettings.size) return;
-  if (!inputVideo) {
+  if ((inputMode === 'file' && !inputVideo) || (inputMode === 'youtube' && !youtubeUrl.trim())) {
     selectNode('probe_input');
     focusNode();
-    toast('请先在「视频输入」节点选择 MP4。');
+    toast('请先在「视频输入」节点选择 MP4 或填写 YouTube 链接。');
     return;
   }
 
@@ -1164,28 +1217,36 @@ $('run').onclick = async () => {
   setConsoleCollapsed(false);
   setConsoleTab(false);
   followTaskLog(null);
-  showRunResult({ state: 'running', node: 'probe_input', message: `正在读取 ${inputVideo.name}…` });
+  const isUrl = inputMode === 'youtube';
+  showRunResult({ state: 'running', phase: isUrl ? 'download' : 'workflow',
+    message: isUrl ? '正在提交视频链接…' : `正在读取 ${inputVideo.name}…` });
   try {
     const { job_id: jobId } = await workflowResponse(await fetch('/api/workflow-runs', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-Video-Name': encodeURIComponent(inputVideo.name),
+        'Content-Type': isUrl ? 'application/json' : 'application/octet-stream',
+        ...(!isUrl ? { 'X-Video-Name': encodeURIComponent(inputVideo.name) } : {}),
       },
-      body: inputVideo,
+      body: isUrl ? JSON.stringify({ url: youtubeUrl.trim() }) : inputVideo,
     }));
     const jobUrl = `/api/workflow-runs/${jobId}`;
     runResult.jobId = jobId;
     followTaskLog(jobId);
-    setPreviewJob(jobId);
+    let previewReady = !isUrl;
+    if (previewReady) setPreviewJob(jobId);
     void refreshTasks({ latest: true });
     while (true) {
       const status = await workflowResponse(await fetch(jobUrl));
       status.jobId = jobId;
+      if (status.input_ready && !previewReady) {
+        setPreviewJob(jobId);
+        previewReady = true;
+      }
       const hasNewSrt = status.english_srt_ready && !runResult.english_srt_ready;
       const completedChanged = (status.completed_nodes ?? []).join() !== (runResult.completed_nodes ?? []).join();
       if (hasNewSrt || completedChanged || status.subtitle_srt_ready !== runResult.subtitle_srt_ready ||
-          status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
+          JSON.stringify(status.node_states) !== JSON.stringify(runResult.node_states) ||
+          status.phase !== runResult.phase || status.node !== runResult.node || status.message !== runResult.message || status.state !== runResult.state) {
         showRunResult(status);
       }
       if (status.state !== 'running') {

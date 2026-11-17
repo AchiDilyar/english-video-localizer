@@ -34,6 +34,7 @@ _SUBDIRS = (
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="run-input")
     parser.add_argument("--work-dir", default=".", help="工作目录，必须已存在")
+    parser.add_argument("--report-progress", action="store_true", help="记录主图节点进度供 WebUI 查看")
     parser.add_argument(
         "--input", default="input.mp4", help="本地输入文件名或单条YouTube视频链接"
     )
@@ -74,7 +75,12 @@ def main(argv: list[str] | None = None) -> int:
         setup_logging(str(work_dir / "logs" / "run.log"))
 
         initial_state = GraphState(input_video=args.input)
-        build_graph().invoke(initial_state)
+        graph = build_graph()
+        if args.report_progress:
+            from utils.progress import stream_with_progress
+            stream_with_progress(graph, initial_state, work_dir / "logs" / "node-progress.jsonl")
+        else:
+            graph.invoke(initial_state)
 
         final_video = Path(artifact_path("final_video"))
         if final_video.is_file() and final_video.stat().st_size > 0:

@@ -23,6 +23,25 @@ def test_canvas_topology_matches_main_graph():
         for sources, target in WORKFLOW_EDGES
         for node in (sources if isinstance(sources, tuple) else (sources,))
     }
+    assert set(schema['incremental_nodes']) == {'repair_blocks','b_environment','mix_background'}
+
+
+def test_background_settings_use_node_models(tmp_path):
+    path=tmp_path/'mix_background.toml'
+    path.write_text('background_gain = 0.7\n')
+    snapshot=settings_snapshot('mix_background',path.read_bytes())
+    saved=save_settings(path,'mix_background',{'revision':snapshot['revision'],'values':{'background_gain':0.4}})
+    assert saved['fields'][0]['value']==0.4
+    with pytest.raises(ValidationError):
+        save_settings(path,'mix_background',{'revision':saved['revision'],'values':{'background_gain':1.1}})
+
+
+def test_mock_incremental_does_not_block_real_basic_path(tmp_path):
+    from workflow_modes import mode_snapshot, save_modes
+    path=tmp_path/'mock.toml'
+    path.write_text('b_environment = true\nmix_background = true\nrepair_blocks = true\n')
+    snapshot=mode_snapshot(path.read_bytes())
+    assert save_modes(path,{'revision':snapshot['revision'],'modes':snapshot['modes']})['modes']==snapshot['modes']
 
 
 def test_write_and_clear_asr_overrides(tmp_path):
