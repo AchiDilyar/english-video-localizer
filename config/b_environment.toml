@@ -1,9 +1,0 @@
-# Always scheduled by F's main graph. Missing local models fail only this incremental node.
-# Paths resolve against the repository; downloads and external audio transfer are disabled.
-model_dir = "models/background-demucs"
-event_model_dir = "models/ast-audioset"
-device = "cpu"
-restore_nonverbal = true
-event_threshold = 0.2
-speech_guard_sec = 0.08
-nonverbal_gain = 0.8

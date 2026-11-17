@@ -1,3 +1,0 @@
-ConversationEDU, Interview with Steve Wozniak. CC BY 3.0. https://commons.wikimedia.org/wiki/File:Interview_with_Steve_Wozniak.webm
-Extracted original 10-24 seconds, re-encoded H.264/AAC, machine transcript and anonymous speaker labels converted to shared Segment.
-Machine-generated English/speaker labels are not human-confirmed.

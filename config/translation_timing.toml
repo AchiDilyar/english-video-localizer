@@ -1,2 +1,0 @@
-# Initial tuning value, not a guarantee of TTS duration.
-target_zh_chars_per_second = 4.0

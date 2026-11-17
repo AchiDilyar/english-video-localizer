@@ -1,2 +1,0 @@
-# Optional explicit ffprobe / ffmpeg paths and absolute stream indices.
-# With no overrides, use PATH or repository-local .tools/ffmpeg/bin.
