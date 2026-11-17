@@ -1,6 +1,6 @@
 import json
 
-from utils.progress import stream_with_progress
+from cli import _stream_with_progress
 
 
 def test_progress_records_only_task_metadata(tmp_path):
@@ -15,7 +15,7 @@ def test_progress_records_only_task_metadata(tmp_path):
             }
 
     path = tmp_path / "progress.jsonl"
-    stream_with_progress(Graph(), None, path)
+    _stream_with_progress(Graph(), None, path)
     content = path.read_text()
     assert "not-for-ui" not in content
     events = [json.loads(line) for line in content.splitlines()]

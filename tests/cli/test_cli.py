@@ -92,26 +92,27 @@ def fake_graph(monkeypatch) -> _FakeGraph:
     return fake
 
 
-def test_work_dir_missing(work_dir, fake_graph, capsys):
+def test_work_dir_missing(work_dir, fake_graph, caplog):
     missing = work_dir / "nope"
     with pytest.raises(FileNotFoundError):
         cli.main(["--work-dir", str(missing)])
-    assert "运行失败" in capsys.readouterr().err
+    assert "运行失败" in caplog.text
     assert fake_graph.calls == []
 
 
-def test_work_dir_is_file(work_dir, fake_graph, capsys):
+def test_work_dir_is_file(work_dir, fake_graph, caplog):
     target = work_dir / "afile"
     target.write_text("x", encoding="utf-8")
     with pytest.raises(NotADirectoryError):
         cli.main(["--work-dir", str(target)])
-    assert "运行失败" in capsys.readouterr().err
+    assert "运行失败" in caplog.text
 
 
 def test_input_missing(work_dir, fake_graph, capsys):
-    with pytest.raises(FileNotFoundError) as excinfo:
+    with pytest.raises(FileNotFoundError):
         cli.main(["--work-dir", str(work_dir)])
-    assert "输入视频不存在" in str(excinfo.value)
+    log_text = (work_dir / "logs" / "run.log").read_text(encoding="utf-8")
+    assert "输入视频不存在" in log_text
     assert "运行失败" in capsys.readouterr().err
 
 
@@ -121,11 +122,15 @@ def test_input_is_directory(work_dir, fake_graph):
         cli.main(["--work-dir", str(work_dir)])
 
 
-def test_input_missing_has_no_side_effects(work_dir, fake_graph):
+def test_input_missing_leaves_only_logs(work_dir, fake_graph):
     with pytest.raises(FileNotFoundError):
         cli.main(["--work-dir", str(work_dir)])
-    assert list(work_dir.iterdir()) == []
-    assert not (work_dir / "logs").exists()
+    # 工作目录检查通过后即初始化日志，输入校验失败时只留下 logs/
+    assert {p.name for p in work_dir.iterdir()} == {"logs"}
+    assert fake_graph.calls == []
+    log_text = (work_dir / "logs" / "run.log").read_text(encoding="utf-8")
+    assert "FileNotFoundError" in log_text
+    assert "输入视频不存在" in log_text
 
 
 def test_workflow_without_final_video(work_dir, fake_graph, capsys):
@@ -170,9 +175,8 @@ def test_default_work_dir_is_cwd(work_dir, fake_graph, monkeypatch):
 def test_graph_exception_logged(work_dir, fake_graph, capsys):
     (work_dir / "input.mp4").touch()
     fake_graph.error = RuntimeError("boom")
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(RuntimeError):
         cli.main(["--work-dir", str(work_dir)])
-    assert "boom" in str(excinfo.value)
 
     log_text = (work_dir / "logs" / "run.log").read_text(encoding="utf-8")
     assert "RuntimeError" in log_text
@@ -183,9 +187,10 @@ def test_graph_exception_logged(work_dir, fake_graph, capsys):
 
 def test_default_input_missing_in_cwd(work_dir, fake_graph, monkeypatch):
     monkeypatch.chdir(work_dir)
-    with pytest.raises(FileNotFoundError) as excinfo:
+    with pytest.raises(FileNotFoundError):
         cli.main([])
-    assert "输入视频不存在" in str(excinfo.value)
+    log_text = (work_dir / "logs" / "run.log").read_text(encoding="utf-8")
+    assert "输入视频不存在" in log_text
 
 def test_run_input_command_default_input(work_dir):
     """在项目根目录通过 run-input 命令行调用，验证默认 --input=input.mp4。
@@ -215,5 +220,7 @@ def test_run_input_command_default_input(work_dir):
     # 默认 --input=input.mp4 拼出 work_dir 下的绝对路径
     assert str(work_dir / "input.mp4") in result.stderr
     assert "运行失败" in result.stderr
-    # 检查在创建子目录之前，失败时不应产生任何副作用
-    assert list(work_dir.iterdir()) == []
+    # 工作目录检查通过后即初始化日志，失败时只留下 logs/
+    assert [p.name for p in work_dir.iterdir()] == ["logs"]
+    log_text = (work_dir / "logs" / "run.log").read_text(encoding="utf-8")
+    assert "输入视频不存在" in log_text

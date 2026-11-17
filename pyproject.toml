@@ -49,7 +49,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-run-input = "cli:main"
+run-input = "cli:run"
 download-video = "nodes.probe_input.youtube:main"
 
 [tool.setuptools]
