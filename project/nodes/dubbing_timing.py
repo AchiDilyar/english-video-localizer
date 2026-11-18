@@ -146,3 +146,19 @@ def validate_display_cues(cues, video_end, expected_english=None):
     if expected_english is not None:
         if " ".join(c["en"] for c in cues).split() != expected_english.split():
             raise ValueError("SUBTITLE_ENGLISH_COVERAGE: original English changed")
+
+
+def crossed_audio_groups(cues, reports, min_overlap_ms=80):
+    """A sentence spanning two final audio groups needs local alignment of both."""
+    affected = set()
+    groups = [row for row in reports if "group_id" in row]
+    for cue in cues:
+        overlaps = [
+            row["group_id"]
+            for row in groups
+            if min(cue["end_ms"], row["end_ms"]) - max(cue["start_ms"], row["start_ms"])
+            >= min_overlap_ms
+        ]
+        if len(overlaps) > 1:
+            affected.update(overlaps)
+    return affected

@@ -74,3 +74,10 @@ def test_real_borrow_chain_reserves_short_ack_and_finishes_at_fixed_video_end():
     cx,cy=schedule_group(c,500,bx+by,2000,policy,end_limit=limits['c'])
     assert (cx,cy)==(1600,400)
     validate_final_timeline([{'group_id':k,'start_ms':s,'end_ms':s+w} for k,s,w in [('a',x,y),('b',bx,by),('c',cx,cy)]],2000)
+
+
+def test_crossing_asr_cue_requires_both_audio_groups_even_with_good_text_match():
+    from nodes.dubbing_timing import crossed_audio_groups
+    reports=[{'group_id':'a','start_ms':0,'end_ms':1000},{'group_id':'b','start_ms':1000,'end_ms':2000}]
+    assert crossed_audio_groups([{'start_ms':300,'end_ms':1400}],reports)=={'a','b'}
+    assert crossed_audio_groups([{'start_ms':300,'end_ms':1010}],reports)==set()

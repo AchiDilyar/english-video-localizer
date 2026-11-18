@@ -116,6 +116,8 @@ def create_bilingual_cues(state,model_dir):
     if reports and state.media_info:
         from .dubbing_timing import validate_final_timeline
         validate_final_timeline(reports,state.media_info.duration_ms)
+    from .dubbing_timing import crossed_audio_groups
+    crossed_groups=crossed_audio_groups(asr['cues'],reports)
     source={s.segment_id:s.text_en for s in sorted(state.segments,key=lambda s:s.start_ms)}
     reviewed={s.segment_id:s.zh_subtitle for s in state.reviewed_blocks}
     script_by_id={g['group_id']:g['text'] for g in script}
@@ -148,9 +150,12 @@ def create_bilingual_cues(state,model_dir):
     for report in reports:
         key=report['group_id'];spoken=[cue for cue in items if cue['source_group_id']==key]
         a,b=normalize(''.join(c['zh'] for c in spoken)),normalize(script_by_id.get(key,''))
-        if not spoken or (b and (a!=b if len(b)<=4 else difflib.SequenceMatcher(None,a,b,autojunk=False).ratio()<.55)):
+        if key in crossed_groups or not spoken or (b and (a!=b if len(b)<=4 else difflib.SequenceMatcher(None,a,b,autojunk=False).ratio()<.55)):
             needs_refinement.append(report)
     refined=refine_groups(needs_refinement,script_by_id,asr['audio_sha256'],str(Path(model_dir).resolve())) if needs_refinement else {}
+    for key in crossed_groups:
+        for cue in refined.get(key,[]):
+            cue.setdefault('warnings',[]).append('cross_group_ASR_sentence_relocalized_on_final_group_audio')
     cues=[]
     for report in [r for r in reports if 'group_id' in r] or [{'group_id':'all','segment_ids':list(source)}]:
         spoken=[cue for cue in items if cue['source_group_id']==report['group_id']]
