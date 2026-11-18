@@ -22,6 +22,7 @@ from utils.config import load_config
 from utils.paths import artifact_path
 
 from .compose_settings import load_compose_options
+from .translate_blocks._punctuation import normalize_display_subtitle
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ def subtitle_cover(state: GraphState) -> dict:
         chinese = " ".join(
             line.strip() for line in by_id[segment.segment_id].splitlines() if line.strip()
         )
+        chinese = normalize_display_subtitle(chinese)
         if not english or not chinese:
             raise ValueError(f"{segment.segment_id} 的原文或审校译文为空。")
 

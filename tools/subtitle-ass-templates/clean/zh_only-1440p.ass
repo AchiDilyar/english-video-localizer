@@ -1,0 +1,15 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 2560
+PlayResY: 1440
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+Collisions: Normal
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ZH,MiSans Medium,87,&H00FFFFFF,&H00ADE7FF,&H00241107,&H80000000,0,0,0,0,100,100,0,0,1,4.67,0.00,2,147,147,53,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 2,0:00:00.00,0:00:04.00,ZH,,0,0,0,,让知识跨越语言。

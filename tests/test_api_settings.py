@@ -103,6 +103,16 @@ def test_http_protection_and_no_echo(files):
             assert response.headers["Cache-Control"] == "no-store"
             body = response.read()
             assert b"fake-old-key" not in body
+        origin = url.rsplit("/api/", 1)[0]
+        reveal_url = url + "/reveal/DEEPSEEK_API_KEY"
+        for headers in ({}, {"Origin": "https://unrelated.example"}):
+            with pytest.raises(HTTPError) as error:
+                urlopen(Request(reveal_url, headers=headers, method="POST"))
+            assert error.value.code == 403
+            assert b"fake-old-key" not in error.value.read()
+        with urlopen(Request(reveal_url, headers={"Origin": origin}, method="POST")) as response:
+            assert response.headers["Cache-Control"] == "no-store"
+            assert json.load(response) == {"value": "fake-old-key"}
         request = payload(env, tts)
         request["secrets"] = {"DASHSCOPE_API_KEY": "fake-http-key"}
 
@@ -131,3 +141,29 @@ def test_http_protection_and_no_echo(files):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def test_translation_probe_uses_current_form_and_protects_saved_key(files, monkeypatch):
+    import api_settings
+
+    env, _ = files
+    before = env.read_bytes()
+    calls = []
+
+    def probe(client, prompt, payload, *, api_key, model, base_url):
+        calls.append({"api_key": api_key, "model": model, "base_url": base_url})
+        return {"ok": True}
+
+    monkeypatch.setattr(api_settings, "generate_json", probe)
+    payload = {"base_url": "https://api.deepseek.com", "model": "draft-model", "api_key": ""}
+    api_settings.test_translation_connection(env, payload)
+    assert calls[-1]["api_key"] == "fake-old-key"
+    assert calls[-1]["model"] == "draft-model"
+
+    payload["base_url"] = "https://other.example/v1"
+    with pytest.raises(ValueError, match="域名或端口"):
+        api_settings.test_translation_connection(env, payload)
+    assert len(calls) == 1
+    api_settings.test_translation_connection(env, {**payload, "api_key": "new-key"})
+    assert calls[-1]["api_key"] == "new-key"
+    assert env.read_bytes() == before

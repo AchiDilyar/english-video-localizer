@@ -27,6 +27,67 @@ function videoButtons() {
   $('review-target').setAttribute('aria-pressed', String(videoMode === 'target'));
   $('review-target').disabled = !finalReady;
   $('review-target').title = finalReady ? '播放本任务生成的配音字幕成片' : '该任务尚未生成目标视频';
+  for (const [id, mode] of [['review-original', 'original'], ['review-target', 'target']]) {
+    $(id).setAttribute('aria-selected', String(videoMode === mode));
+    $(id).tabIndex = videoMode === mode ? 0 : -1;
+  }
+}
+
+function mediaTime(seconds) {
+  const value = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(value / 60);
+  const tail = String(value % 60).padStart(2, '0');
+  return minutes >= 60
+    ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${tail}`
+    : `${String(minutes).padStart(2, '0')}:${tail}`;
+}
+
+let scrubbing = false;
+function updateMediaControls() {
+  const duration = Number.isFinite(video.duration) ? video.duration : 0;
+  const ready = Boolean(video.getAttribute('src')) && video.readyState >= 1 && !video.error;
+  const playing = !video.paused && !video.ended;
+  const play = $('review-play');
+  play.disabled = !ready;
+  play.classList.toggle('is-playing', playing);
+  play.setAttribute('aria-label', playing ? '暂停' : '播放');
+  play.title = playing ? '暂停' : '播放';
+  const seek = $('review-seek');
+  seek.disabled = !ready || duration <= 0;
+  seek.max = String(duration);
+  if (!scrubbing) seek.value = String(video.currentTime || 0);
+  seek.setAttribute('aria-valuetext', `${mediaTime(video.currentTime)} / ${mediaTime(duration)}`);
+  seek.style.setProperty('--played', duration ? `${Math.min(100, video.currentTime / duration * 100)}%` : '0%');
+  $('review-clock').textContent = `${mediaTime(video.currentTime)} / ${mediaTime(duration)}`;
+  const muted = video.muted || video.volume === 0;
+  $('review-mute').disabled = !ready;
+  $('review-mute').setAttribute('aria-pressed', String(muted));
+  $('review-mute').setAttribute('aria-label', muted ? '取消静音' : '静音');
+  $('review-mute').title = muted ? '取消静音' : '静音';
+  $('review-fullscreen').disabled = !ready || !document.fullscreenEnabled;
+}
+
+async function togglePlayback() {
+  if ($('review-play').disabled) return;
+  if (!video.paused) video.pause();
+  else {
+    try {
+      await video.play();
+    } catch {
+      $('review-video-error').textContent = '无法开始播放，请稍后重试。';
+      $('review-video-error').hidden = false;
+    }
+  }
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.querySelector('.review-player').requestFullscreen();
+  } catch {
+    $('review-video-error').textContent = '当前浏览器无法进入全屏。';
+    $('review-video-error').hidden = false;
+  }
 }
 
 function switchVideo(mode) {
@@ -103,7 +164,7 @@ export function getReviewView() {
   return {
     tab: $('subtitle-panel').hidden ? 'workflow' : 'subtitles',
     stage,
-    follow: $('review-follow').checked,
+    follow: true,
     jobId,
   };
 }
@@ -118,7 +179,6 @@ export function restoreReviewView(view, file) {
     videoMode = 'original';
     videoButtons();
   }
-  $('review-follow').checked = view.follow;
   setStage(view.stage);
   showView(view.tab === 'subtitles');
 }
@@ -159,8 +219,10 @@ function setVideo(url, label) {
   }
   video.hidden = !url;
   $('review-video-empty').hidden = !!url;
-  $('review-source').textContent = label;
+  video.setAttribute('aria-label', label || '视频预览');
   $('review-video-error').hidden = true;
+  scrubbing = false;
+  updateMediaControls();
 }
 
 export function setPreviewInput(file) {
@@ -222,10 +284,13 @@ function renderCues(items) {
     maxEnd = Math.max(maxEnd, cue.end_ms);
     latestEnd.push(maxEnd);
     const row = document.createElement('li');
+    row.className = 'review-cue-item';
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'review-cue';
-    appendText(button, 'review-time', `${timestamp(cue.start_ms)} – ${timestamp(cue.end_ms)}`);
+    appendText(row, 'review-time', `${timestamp(cue.start_ms)} – ${timestamp(cue.end_ms)}`);
+    row.firstElementChild.id = `review-time-${rows.length}`;
+    button.setAttribute('aria-describedby', row.firstElementChild.id);
     appendText(button, 'review-original', cue.original);
     if (cue.translation !== null) appendText(button, 'review-translation', cue.translation);
     button.addEventListener('click', () => {
@@ -259,12 +324,12 @@ function syncPlayback() {
   const row = rows[active];
   if (!row) return;
   row.setAttribute('aria-current', 'true');
-  if ($('review-follow').checked) scrollToCue(row);
+  scrollToCue(row);
 }
 
 function scrollToCue(row) {
   const bounds = scroll.getBoundingClientRect();
-  const target = row.getBoundingClientRect();
+  const target = row.parentElement.getBoundingClientRect();
   if (target.top < bounds.top || target.bottom > bounds.bottom) {
     scroll.scrollTop += target.top - bounds.top - (bounds.height - target.height) / 2;
   }
@@ -305,6 +370,35 @@ $('workflow-tab').onclick = () => showView(false);
 $('review-original').onclick = () => switchVideo('original');
 $('review-target').onclick = () => switchVideo('target');
 $('subtitle-tab').onclick = () => showView(true);
+$('review-play').onclick = togglePlayback;
+video.addEventListener('click', togglePlayback);
+video.addEventListener('keydown', event => {
+  if (event.code === 'Space') {
+    event.preventDefault();
+    void togglePlayback();
+  }
+});
+$('review-mute').onclick = () => {
+  video.muted = !(video.muted || video.volume === 0);
+  if (!video.muted && video.volume === 0) video.volume = 1;
+};
+$('review-fullscreen').onclick = toggleFullscreen;
+document.addEventListener('fullscreenchange', () => {
+  const label = document.fullscreenElement ? '退出全屏' : '全屏';
+  $('review-fullscreen').setAttribute('aria-label', label);
+  $('review-fullscreen').title = label;
+});
+$('review-seek').addEventListener('pointerdown', () => { scrubbing = true; });
+for (const event of ['pointerup', 'pointercancel', 'blur']) {
+  $('review-seek').addEventListener(event, () => { scrubbing = false; updateMediaControls(); });
+}
+$('review-seek').oninput = () => {
+  if (Number.isFinite(video.duration)) video.currentTime = Number($('review-seek').value);
+  updateMediaControls();
+};
+for (const event of ['timeupdate', 'loadedmetadata', 'durationchange', 'emptied', 'loadstart', 'play', 'pause', 'ended', 'volumechange', 'error']) {
+  video.addEventListener(event, updateMediaControls);
+}
 for (const tab of stageTabs) tab.onclick = () => setStage(tab.dataset.stage);
 for (const event of ['timeupdate', 'seeking', 'seeked', 'loadedmetadata']) {
   video.addEventListener(event, syncPlayback);
@@ -313,6 +407,7 @@ function trackPlayback() {
   frame = null;
   if (video.paused || video.ended) return;
   syncPlayback();
+  updateMediaControls();
   frame = requestAnimationFrame(trackPlayback);
 }
 video.addEventListener('play', () => {
@@ -322,10 +417,6 @@ video.addEventListener('pause', () => {
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
 });
-$('review-follow').onchange = () => {
-  if ($('review-follow').checked && rows[active]) scrollToCue(rows[active]);
-  reviewChanged();
-};
 video.addEventListener('error', () => {
   $('review-video-error').textContent = '无法播放该视频。请确认文件存在且浏览器支持其视频编码。';
   $('review-video-error').hidden = false;

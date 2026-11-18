@@ -191,6 +191,7 @@ def render_cue_tracks(state,options,cues):
     from .subtitle_cover import _timestamp,_write_tracks
     from .compose_settings import load_compose_options
     from subtitle_templates import ass_header,ass_dialogue,ass_times
+    from .translate_blocks._punctuation import normalize_display_subtitle
     tracks={name:[] for name in ['english_srt','chinese_srt','bilingual_srt']}
     dialogue=[]
     video=state.media_info.video_info
@@ -198,7 +199,9 @@ def render_cue_tracks(state,options,cues):
     metrics=None
     if options.paginate:
         from .subtitle_paging import DisplayMetrics,paginate
-        metrics=DisplayMetrics(width,height,options.display_font_path,strict_single_line=getattr(options,'strict_single_line',False))
+        metrics=DisplayMetrics(width,height,options.display_font_path,
+                               strict_single_line=getattr(options,'strict_single_line',False),
+                               style_id=options.style,layout_id=options.layout)
         cues=paginate(cues,metrics)
         Path(artifact_path('burnin_subtitle')).with_name('display_cues.json').write_text(
             json.dumps({'cues':cues,'font_family':metrics.font_family,'width':width,'height':height,
@@ -213,7 +216,8 @@ def render_cue_tracks(state,options,cues):
     validate_display_cues(cues,state.media_info.duration_ms,expected)
     for i,cue in enumerate(cues,1):
         header=f"{i}\n{_timestamp(cue['start_ms'])} --> {_timestamp(cue['end_ms'])}\n"
-        english=cue.get('en_display',cue['en']);chinese=cue.get('zh_display',cue['zh'])
+        english=cue.get('en_display',cue['en'])
+        chinese=normalize_display_subtitle(cue.get('zh_display',cue['zh']))
         tracks['english_srt'].append(header+english)
         tracks['chinese_srt'].append(header+chinese)
         tracks['bilingual_srt'].append(header+chinese+'\n'+english)
@@ -224,6 +228,6 @@ def render_cue_tracks(state,options,cues):
     outputs={key:'\n\n'.join(values)+'\n' for key,values in tracks.items()}
     video=state.media_info.video_info
     width,height=load_compose_options().output_size(video.width,video.height)
-    outputs['burnin_subtitle']=ass_header(metrics.font_family if metrics else None,width,height,options.style,options.layout)+'\n'.join(dialogue)+'\n'
+    outputs['burnin_subtitle']=ass_header(None,width,height,options.style,options.layout)+'\n'.join(dialogue)+'\n'
     _write_tracks(outputs)
     return {}

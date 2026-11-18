@@ -2,13 +2,26 @@
 
 import os
 import re
+from contextvars import ContextVar
 from pathlib import Path
 
 import httpx
 from contracts import Segment, TranslatedSegment
 from dotenv import load_dotenv
 
-from ._deepseek import DEFAULT_BASE_URL, DEFAULT_MODEL, generate_json
+from ._deepseek import DEFAULT_MODEL, generate_json
+from ._punctuation import normalize_repaired_subtitle
+from ._models import selected_model
+
+_MODEL_STAGE = ContextVar("translation_model_stage", default="translate_blocks")
+
+
+def request_for(stage: str, **request) -> dict:
+    token = _MODEL_STAGE.set(stage)
+    try:
+        return request_json(**request)
+    finally:
+        _MODEL_STAGE.reset(token)
 
 REQUEST_TIMEOUT_SEC = 180.0
 
@@ -50,14 +63,15 @@ def request_json(*, instruction: str, payload: dict, output_format: str = OUTPUT
         return school_request(instruction=instruction, payload=payload, output_format=output_format)
     if transport != 'api':
         raise ValueError('DEEPSEEK_TRANSPORT 仅支持 api 或 school_bridge。')
+    profile = selected_model(text_model_env(), _MODEL_STAGE.get(), os.environ)
     with httpx.Client(timeout=REQUEST_TIMEOUT_SEC) as client:
         return generate_json(
             client,
             instruction + "\n" + output_format,
             payload,
-            api_key=os.getenv("DEEPSEEK_API_KEY", ""),
-            model=text_model_name(),
-            base_url=os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL,
+            api_key=profile["api_key"],
+            model=profile["model"],
+            base_url=profile["base_url"],
         )
 
 
@@ -100,7 +114,11 @@ def validate_items(response: dict, block_id: str, expected_ids: list[str]) -> li
             raise ValueError(f"{block_id}：模型返回了意外或重复的 ID {segment_id}。")
         if not translated.zh_subtitle.strip():
             raise ValueError(f"{block_id}：{segment_id} 的中文译文为空。")
-        validate_chinese_translation(translated.zh_subtitle)
+        subtitle = normalize_repaired_subtitle(translated.zh_subtitle)
+        if not subtitle:
+            raise ValueError(f"{block_id}：{segment_id} 的中文译文去除标点后为空。")
+        validate_chinese_translation(subtitle)
+        translated = translated.model_copy(update={"zh_subtitle": subtitle})
         by_id[segment_id] = translated
 
     if by_id.keys() != expected:

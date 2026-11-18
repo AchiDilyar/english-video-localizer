@@ -1,4 +1,4 @@
-"""Apply the shared subtitle punctuation rules to repaired model output."""
+"""Apply the shared Chinese subtitle punctuation rules at model and export boundaries."""
 
 import re
 
@@ -23,3 +23,12 @@ def normalize_repaired_subtitle(text: str) -> str:
     text = _SINGLE_QUOTES.sub(r"‘\1’", text)
     text = _PUNCTUATION.sub(lambda match: match["protected"] or " ", text)
     return re.sub(r" +(?=[”’!?？！])", "", " ".join(text.split()))
+
+
+def normalize_display_subtitle(text: str) -> str:
+    """Preserve intentional visual line breaks while normalizing Chinese punctuation."""
+    lines = [normalize_repaired_subtitle(line) for line in text.splitlines()]
+    result = "\n".join(line for line in lines if line)
+    if not result:
+        raise ValueError("中文字幕去除标点后为空，无法导出。")
+    return result

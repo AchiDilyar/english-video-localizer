@@ -1,4 +1,6 @@
-import { getReviewView, openSubtitleReview, refreshSubtitleReview, restoreReviewView, setPreviewInput, setPreviewJob } from './subtitle-review.js';
+import { createTranslationModels } from './translation-models.js';
+import { createApiSettings } from './api-settings.js';
+import { getReviewView, refreshSubtitleReview, restoreReviewView, setPreviewInput, setPreviewJob } from './subtitle-review.js';
 import { refreshTasks } from './task-queue.js';
 import { schema, categories, edges, defaults } from './node-schema.js';
 
@@ -6,11 +8,12 @@ const $ = id => document.getElementById(id);
 
 const NS = 'http://www.w3.org/2000/svg';
 const STORAGE = 'video-localizer.canvas.v1';
+const OUTPUT_STORAGE = 'video-localizer.output-directory';
 const LEGACY_LAYOUT_KEYS = ['video-localizer.project.v4', 'video-localizer.project.v3', 'video-localizer.workflow.v2'];
 const ID = /^[a-f0-9]{32}$/;
 const DEFAULT_CAMERA = { x: 23, y: 11, scale: 0.86 };
 const index = new Map(schema.map(node => [node.id, node]));
-const modeLabels = { mock: '模拟', real: '真实' };
+const modeLabels = { mock: '禁用', real: '启用' };
 const narrowScreen = matchMedia('(max-width:640px)');
 const MAX_ANCHORS = 16;
 const edgeKey = (from, to) => `${from}:${to}`;
@@ -19,12 +22,12 @@ const SIZE_LIMITS = { width: [220, 680], height: [155, 1440] };
 const elements = new Map();
 let backendModes = {};
 let runResult = null;
+let runStartedAt = null;
+let runTimer = null;
 let inputVideo = null;
-let inputMode = 'file';
 let youtubeUrl = '';
-let authorizeVoiceClone = false;
-let selectedSourceId = '';
-let knownSources = [];
+let outputDirectory = '';
+try { outputDirectory = localStorage.getItem(OUTPUT_STORAGE) ?? ''; } catch {}
 let config = defaults();
 let anchors = {};
 let selected = 'probe_input';
@@ -177,88 +180,90 @@ function svg(tag, attributes = {}) {
   for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
   return element;
 }
-async function refreshSources() {
-  try {
-    const data = await workflowResponse(await fetch('/api/video-sources'));
-    knownSources = data.sources;
-    if (!knownSources.some(source => source.id === selectedSourceId)) selectedSourceId = knownSources[0]?.id ?? '';
-    if (inputMode === 'existing') { renderNodes(); draw(); }
-  } catch (error) { toast(error.message || '无法读取已有素材', true); }
-}
-
 function videoPicker() {
   const picker = el('div', 'source-picker');
-  const tabs = el('div', 'source-tabs');
-  for (const [mode, title] of [['file', '本地 MP4'], ['youtube', 'YouTube 链接'], ['existing', '已有素材']]) {
-    const tab = el('button', '', title);
-    tab.type = 'button';
-    tab.disabled = busy;
-    tab.setAttribute('aria-pressed', String(inputMode === mode));
-    tab.onclick = () => {
-      inputMode = mode;
-      authorizeVoiceClone = false;
-      if (mode === 'youtube') setPreviewInput(null);
-      else if (mode === 'file' && inputVideo) setPreviewInput(inputVideo);
-      else setPreviewInput(null);
-      renderNodes();
-      draw();
-      if (mode === 'existing') void refreshSources();
-    };
-    tabs.append(tab);
-  }
-  picker.append(tabs);
-  const consent = el('label', 'voice-clone-consent');
-  const check = el('input');
-  check.type = 'checkbox';
-  check.checked = authorizeVoiceClone;
-  check.disabled = busy;
-  check.onchange = () => { authorizeVoiceClone = check.checked; };
-  consent.append(check, el('span', '', '已获本视频所有说话人授权，允许上传参考原声并创建复刻音色（可能收费）'));
-  picker.append(consent);
-  if (inputMode === 'existing') {
-    const label = el('label', 'source-url-label', '选择已下载或上传的原视频');
-    const select = el('select', 'source-url');
-    select.setAttribute('aria-label', '已有原视频');
-    select.disabled = busy;
-    if (!knownSources.length) select.add(new Option('暂无素材，请先下载或上传一次', ''));
-    for (const source of knownSources) select.add(new Option(source.title, source.id));
-    select.value = selectedSourceId;
-    const location = el('p', 'connection-note', knownSources.find(source => source.id === selectedSourceId)?.path ?? '');
-    location.style.overflowWrap = 'anywhere';
-    select.onchange = () => {
-      selectedSourceId = select.value;
-      authorizeVoiceClone = false; check.checked = false;
-      location.textContent = knownSources.find(source => source.id === selectedSourceId)?.path ?? '';
-    };
-    const refresh = el('button', '', '刷新素材列表');
-    refresh.type = 'button'; refresh.disabled = busy; refresh.onclick = () => { void refreshSources(); };
-    label.append(select);
-    picker.append(label, location, el('p', 'connection-note', '直接读取首次下载的原片；任务目录只保存处理结果。'), refresh);
-    return picker;
-  }
-  if (inputMode === 'youtube') {
-    const label = el('label', 'source-url-label', '原视频链接');
-    const input = el('input', 'source-url');
-    input.type = 'url';
-    input.placeholder = 'https://www.youtube.com/watch?v=…';
-    input.value = youtubeUrl;
-    input.disabled = busy;
-    input.setAttribute('aria-label', 'YouTube 视频链接');
-    input.oninput = () => { youtubeUrl = input.value; authorizeVoiceClone = false; check.checked = false; };
-    label.append(input);
-    picker.append(label, el('p', 'connection-note', '点击顶部运行：下载后自动完成翻译、配音、字幕与成片。'));
-    return picker;
-  }
-  const row = el('div', 'video-input-picker');
-  const button = el('button', '', '选择视频');
-  button.type = 'button';
-  button.disabled = busy;
-  button.onclick = () => $('workflow-video').click();
-  const name = el('span', '', inputVideo?.name ?? '未选择 MP4');
-  name.title = name.textContent;
-  row.append(button, name);
-  picker.append(row);
+  const fileRow = el('div', 'source-input-row');
+  const fileName = el('input', 'source-url');
+  fileName.type = 'text';
+  fileName.readOnly = true;
+  fileName.placeholder = '选择本地 MP4';
+  fileName.value = inputVideo?.name ?? '';
+  fileName.setAttribute('aria-label', '本地 MP4');
+  const choose = el('button', '', '选择文件');
+  choose.type = 'button';
+  choose.disabled = busy || Boolean(youtubeUrl.trim());
+  choose.onclick = () => $('workflow-video').click();
+  fileName.onclick = () => { if (!choose.disabled) choose.click(); };
+  const clear = el('button', 'source-clear', '清空');
+  clear.type = 'button';
+  clear.setAttribute('aria-label', '清空本地视频');
+  clear.disabled = busy || !inputVideo;
+  clear.onclick = () => {
+    inputVideo = null;
+    setPreviewInput(null);
+    renderNodes();
+    draw();
+  };
+  fileRow.append(el('span', '', '文件'), fileName, choose, clear);
+
+  const urlRow = el('label', 'source-input-row');
+  const url = el('input', 'source-url');
+  url.type = 'url';
+  url.placeholder = 'https://www.youtube.com/watch?v=…';
+  url.value = youtubeUrl;
+  url.disabled = busy || Boolean(inputVideo);
+  url.setAttribute('aria-label', 'YouTube 视频链接');
+  urlRow.append(el('span', '', '链接'), url);
+  picker.append(fileRow, urlRow);
+
+  url.oninput = () => {
+    youtubeUrl = url.value;
+    choose.disabled = busy || Boolean(youtubeUrl.trim());
+    setPreviewInput(null);
+  };
   return picker;
+}
+
+function outputDirectoryPicker() {
+  const group = el('div', 'param-row output-directory');
+  const label = el('label', 'param-label', '输出目录');
+  label.htmlFor = 'compose-output-directory';
+  const row = el('div', 'source-input-row');
+  const input = el('input', 'source-url');
+  input.id = label.htmlFor;
+  input.type = 'text';
+  input.value = outputDirectory;
+  input.placeholder = '默认使用任务目录';
+  input.disabled = busy;
+  input.oninput = () => {
+    outputDirectory = input.value;
+    try { localStorage.setItem(OUTPUT_STORAGE, outputDirectory); } catch {}
+  };
+  const choose = el('button', '', '选择目录');
+  choose.type = 'button';
+  choose.disabled = busy || savingSettings.has(OUTPUT_STORAGE);
+  choose.onclick = async () => {
+    choose.disabled = true;
+    savingSettings.add(OUTPUT_STORAGE);
+    $('run').disabled = true;
+    try {
+      const { directory } = await workflowResponse(await fetch('/api/output-directory/pick', { method: 'POST' }));
+      if (directory && choose.isConnected && !busy) {
+        input.value = directory;
+        input.oninput();
+      }
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      savingSettings.delete(OUTPUT_STORAGE);
+      const current = elements.get('compose_video')?.querySelector('.output-directory button');
+      if (current) current.disabled = busy;
+      $('run').disabled = busy || savingSettings.size > 0;
+    }
+  };
+  row.append(input, choose);
+  group.append(label, row);
+  return group;
 }
 
 function updateNodeMode(card, nodeId) {
@@ -268,8 +273,6 @@ function updateNodeMode(card, nodeId) {
   badge.dataset.mode = mode;
   badge.textContent = modeLabels[mode] ?? '未知';
   badge.setAttribute('aria-label', `运行模式：${badge.textContent}`);
-  const mockNote = card.querySelector('.node-mock-note');
-  if (mockNote) mockNote.hidden = mode !== 'mock';
 }
 
 function applyBackendModes(modes) {
@@ -317,7 +320,7 @@ function updateModeMenu(message) {
     const current = snapshot?.modes[node.id] === mode;
     const unavailable = snapshot && mode === 'real' && !snapshot.available.includes(node.id);
     button.disabled = busy || savingMode || !snapshot || current || Boolean(unavailable);
-    button.textContent = unavailable ? '真实（待接入）' : modeLabels[mode];
+    button.textContent = unavailable ? '启用（待接入）' : modeLabels[mode];
     button.setAttribute('aria-pressed', String(current));
   }
   $('node-mode-message').textContent = message;
@@ -423,17 +426,6 @@ function renderNodes() {
     const fields = el('div', 'node-fields');
     fields.setAttribute('aria-label', `${node.title}参数`);
     renderNodeFields(fields, node);
-    const mockNote = el('p', 'node-mock-note', '模拟节点：此处配置不影响运行结果。');
-    mockNote.hidden = true;
-    fields.prepend(mockNote);
-    if (node.id === 'asr_diarize') {
-      const preview = el('details', 'node-preview');
-      const body = el('div', 'node-preview-content');
-      preview.addEventListener('toggle', draw);
-      preview.append(el('summary', '', '字幕查看'), body);
-      renderPreview(body);
-      fields.append(preview);
-    }
     const footer = el('div', 'node-footer');
     const state = el('span', 'node-state');
     footer.append(state);
@@ -442,7 +434,7 @@ function renderNodes() {
     handle.title = '拖动调整节点尺寸，也可使用方向键';
     handle.setAttribute('aria-label', `调整${node.title}尺寸`);
     handle.addEventListener('keydown', event => resizeWithKeyboard(event, node.id));
-    card.append(header, el('div', 'node-id', `${node.id} · ${node.role}组 · ${node.incremental ? '增量' : '基础版'}`), ports, fields, footer, handle);
+    card.append(header, el('div', 'node-id', `${node.id} · ${node.role}组`), ports, fields, footer, handle);
     updateNodeMode(card, node.id);
     card.addEventListener('focusin', () => { if (selected !== node.id) selectNode(node.id); });
     card.addEventListener('click', event => {
@@ -470,7 +462,7 @@ const configLabels = {
   community1_cache: 'Community-1 缓存目录', community1_device: 'Community-1 设备',
   num_speakers: '说话人数量', worker_timeout_sec: '说话人区分超时（秒）',
   semantic_provider: '语义复核服务', allow_semantic_network: '允许语义复核联网',
-  semantic_max_calls: '语义复核调用上限', model: 'DeepSeek 模型',
+  semantic_max_calls: '语义复核调用上限', model: '模型',
   timeout_sec: '请求超时（秒）', max_block_span_ms: '翻译块跨度上限（毫秒）',
   default_terminology: '默认术语表', style: '字幕风格', layout: '语言排布',
   event_model_dir: '非语言事件模型目录', device: '分离设备',
@@ -482,7 +474,6 @@ const configLabels = {
   max_forward_delay_ms: '允许向后顺延（毫秒）', short_audio_policy: '短音频处理策略',
   timing_source: '字幕时间依据', speech_model_dir: '中文语音定位模型',
   paginate: '字幕分页', semantic_pairing: '双语分段匹配', strict_single_line: '严格单行',
-  display_font_path: '字幕字体路径',
 };
 const backendSettings = new Map();
 const savingSettings = new Set();
@@ -492,7 +483,7 @@ let subtitleCatalog;
 function subtitleStylePreview(form) {
   const preview = el('figure', 'subtitle-style-preview');
   const frame = el('div', 'subtitle-style-frame');
-  preview.append(el('figcaption', '', '字幕样式预览'), frame);
+  preview.append(el('figcaption', 'param-label', '样式预览'), frame);
   subtitleCatalog ??= fetch('/subtitle-styles.json').then(workflowResponse).catch(error => {
     subtitleCatalog = null;
     throw error;
@@ -584,13 +575,13 @@ function renderSettings(content, node, settings) {
   const form = el('form', 'node-config-form');
   const fields = el('fieldset', 'param-group');
   fields.disabled = busy || savingSettings.has(node.id);
-  fields.append(el('legend', '', 'CLI 共享配置'));
   const inputs = [];
   for (const field of settings.fields) {
+    if (node.id === 'subtitle_cover' && field.key === 'display_font_path') continue;
     if (field.readonly) {
       const value = field.type === 'object'
         ? Object.entries(field.value ?? {}).map(([key, value]) => `${key} = ${value}`).join(' · ')
-        : field.value || '继承当前 Python 环境';
+        : String(field.value ?? '继承当前 Python 环境');
       fields.append(configRow(field.key, value));
       continue;
     }
@@ -598,7 +589,10 @@ function renderSettings(content, node, settings) {
     const input = settingControl(field);
     row.classList.toggle('bool', field.type === 'boolean');
     row.classList.toggle('numeric', input.type === 'number');
-    const label = field.key === 'model_dir' && node.id === 'b_environment' ? '背景分离模型目录' : configLabels[field.key] ?? field.key;
+    row.classList.toggle('stream-index', node.id === 'probe_input' && ['audio_stream', 'video_stream'].includes(field.key));
+    const translationLabels = { style: '翻译领域', tone: '翻译风格' };
+    const label = node.id === 'translate_blocks' ? translationLabels[field.key] ?? field.key
+      : field.key === 'model_dir' && node.id === 'b_environment' ? '背景分离模型目录' : configLabels[field.key] ?? field.key;
     input.setAttribute('aria-label', label);
     row.append(el('span', 'param-label', label), input);
     fields.append(row);
@@ -658,8 +652,26 @@ function renderNodeFields(content, node) {
   if (node.id === 'probe_input') content.append(videoPicker());
   const settings = el('div', 'node-backend-settings');
   if (backendSettings.has(node.id)) renderSettings(settings, node, backendSettings.get(node.id));
-  else settings.append(el('p', 'connection-note', '正在读取后端配置…'));
   content.append(settings);
+  if (node.id === 'compose_video') content.append(outputDirectoryPicker());
+  if (['translate_blocks', 'review_blocks', 'repair_blocks', 'tts_align'].includes(node.id)) {
+    const factory = node.id === 'tts_align'
+      ? options => createApiSettings('speech', options)
+      : options => createTranslationModels(node.id, options);
+    content.append(factory({
+      locked: busy,
+      onResize: draw,
+      onPending(pending) {
+        const key = 'api-' + node.id;
+        if (pending) savingSettings.add(key);
+        else savingSettings.delete(key);
+        $('run').disabled = busy || savingSettings.size > 0;
+      },
+      onSaved() {
+        if (node.id === 'tts_align') void refreshNodeSettings(node);
+      },
+    }));
+  }
 }
 
 async function refreshNodeSettings(node) {
@@ -672,17 +684,6 @@ async function refreshNodeSettings(node) {
   const target = elements.get(node.id)?.querySelector('.node-backend-settings');
   if (target) renderSettings(target, node, backendSettings.get(node.id));
   if (!$('workflow-panel').hidden) draw();
-}
-
-function renderPreview(content) {
-  const open = el('button', '', '打开字幕查看');
-  open.onclick = openSubtitleReview;
-  const message = runResult?.english_srt_ready
-    ? '英文字幕初稿已保存，可在字幕查看中对照视频复核。'
-    : runResult?.english_segments_ready
-      ? '英文分段已就绪，可在字幕查看中对照视频复核。'
-      : '运行工作流后，在字幕查看中对照视频检查各阶段字幕。';
-  content.replaceChildren(el('p', 'connection-note', message), open);
 }
 
 function renderStepStrip() {
@@ -817,7 +818,7 @@ function draw() {
     if (done) label = node.id === 'asr_diarize' ? '英文分段已就绪' : '已完成';
     const noOutput = runResult?.node_states?.[node.id] === 'no_output';
     if (noOutput) label = ['b_environment', 'mix_background'].includes(node.id)
-      ? '背景处理未生效 · 继续纯中文配音' : '未产生增量 · 基础流程继续';
+      ? '背景处理未生效 · 继续纯中文配音' : '未生成产物 · 继续运行';
     if (running) label = '正在运行';
     if (failed) label = runResult.state === 'blocked' ? '尚未接入 · 已停止' : '执行失败';
     item.classList.toggle('is-active', running);
@@ -1184,7 +1185,7 @@ function updateOutput() {
   if (selected === 'probe_input' && runResult?.phase === 'download') output = runResult.message;
   else if (runResult?.node_states?.[selected] === 'no_output') output = ['b_environment', 'mix_background'].includes(selected)
     ? '背景处理未生效，本次继续使用纯中文配音。请查看后端日志中的模型或混音错误。'
-    : '本次未发布增量产物，基础流程继续运行。详情见后端日志。';
+    : '本节点未生成产物，工作流继续运行。详情见后端日志。';
   else if (selected === 'b_environment' && runResult?.completed_nodes?.includes(selected)) output = '已完成本地背景分离与非语言事件检查，发布 audio/environment.wav 和 environment.source.json；与原视频、台词时间轴绑定。';
   else if (selected === 'mix_background' && runResult?.completed_nodes?.includes(selected)) output = '已混合背景与中文配音，发布 audio/mixed.wav 和 mixed.mix.json；合成节点会验证并使用混合音轨。';
   else if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
@@ -1196,7 +1197,7 @@ function updateOutput() {
   else if (selected === 'subtitle_cover' && runResult?.subtitle_srt_ready) {
     output = '原文、译文和双语 SRT 已生成，等待烧录字幕 burnin.ass。';
   }
-  else if (runResult?.node === selected) output = runResult.message;
+  else if (runResult?.node === selected || (selected === 'compose_video' && runResult?.state === 'complete')) output = runResult.message;
   else if (runResult?.completed_nodes?.includes(selected)) output = '节点已完成。';
   const panel = $('console-output');
   panel.textContent = output;
@@ -1216,7 +1217,7 @@ $('workflow-video').onchange = event => {
     return;
   }
   inputVideo = file;
-  authorizeVoiceClone = false;
+  youtubeUrl = "";
   setPreviewInput(file);
   renderNodes();
   draw();
@@ -1230,23 +1231,53 @@ async function workflowResponse(response) {
 
 function showRunResult(status) {
   runResult = status;
+  if (status.started_at && status.state === 'running') runStartedAt = status.started_at * 1000;
+  updateRunDisplay();
   const runStatus = $('run-status');
   runStatus.dataset.state = status.state;
   const labels = { running: '工作流运行中…', blocked: '工作流已停止',
     failed: '工作流执行失败', complete: '工作流已完成' };
   runStatus.textContent = status.state === 'running' && status.phase === 'download' ? '正在下载原视频…' : labels[status.state];
   updateLogNotice();
-  const preview = elements.get('asr_diarize')?.querySelector('.node-preview-content');
-  if (preview) renderPreview(preview);
   updateOutput();
   draw();
 }
 
+function updateRunDisplay() {
+  const active = busy && (!runResult || runResult.state === 'running');
+  const progress = $('workflow-progress');
+  progress.hidden = !active;
+  if (!busy) {
+    $('run-label').textContent = '运行';
+    return;
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - runStartedAt) / 1000));
+  $('run-label').textContent = `已运行 ${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  const completed = new Set(runResult?.completed_nodes ?? []);
+  for (const [node, state] of Object.entries(runResult?.node_states ?? {})) {
+    if (state === 'complete' || state === 'no_output') completed.add(node);
+  }
+  const count = schema.filter(node => completed.has(node.id)).length;
+  const percent = Math.round(count / schema.length * 100);
+  progress.setAttribute('aria-valuenow', String(percent));
+  progress.setAttribute('aria-valuetext', `已完成 ${count} / ${schema.length} 个节点`);
+  progress.querySelector('span').style.width = percent + '%';
+  progress.classList.toggle('is-indeterminate', count === 0);
+}
+
 function setRunLock(locked) {
   busy = locked;
-  if (locked) closeNodeModes();
+  clearInterval(runTimer);
+  if (locked) {
+    runStartedAt ??= Date.now();
+    runTimer = setInterval(updateRunDisplay, 1000);
+    closeNodeModes();
+  } else {
+    runStartedAt = null;
+  }
+  updateRunDisplay();
   for (const id of ['run', 'clear-log']) {
-    $(id).disabled = locked;
+    $(id).disabled = locked || (id === 'run' && savingSettings.size > 0);
   }
   $('draft-state').hidden = !locked;
   $('draft-state').classList.toggle('is-locked', locked);
@@ -1254,42 +1285,8 @@ function setRunLock(locked) {
   renderNodes();
 }
 
-$('run').onclick = async () => {
-  if (busy || savingSettings.size) return;
-  if ((inputMode === 'file' && !inputVideo) || (inputMode === 'youtube' && !youtubeUrl.trim()) ||
-      (inputMode === 'existing' && !selectedSourceId)) {
-    selectNode('probe_input');
-    focusNode();
-    toast('请先选择 MP4、填写 YouTube 链接，或选择已有素材。');
-    return;
-  }
-
-  setRunLock(true);
-  void refreshBackendModes();
-  setConsoleCollapsed(false);
-  setConsoleTab(false);
-  followTaskLog(null);
-  const isUrl = inputMode === 'youtube';
-  const isJson = inputMode !== 'file';
-  showRunResult({ state: 'running', phase: isUrl ? 'download' : 'workflow',
-    message: isUrl ? '正在准备原视频（已有素材将直接复用）…' : isJson ? '正在读取已有原视频…' : `正在读取 ${inputVideo.name}…` });
-  try {
-    const { job_id: jobId } = await workflowResponse(await fetch('/api/workflow-runs', {
-      method: 'POST',
-      headers: {
-        'Content-Type': isJson ? 'application/json' : 'application/octet-stream',
-        'X-Authorize-Voice-Clone': String(authorizeVoiceClone),
-        ...(!isJson ? { 'X-Video-Name': encodeURIComponent(inputVideo.name) } : {}),
-      },
-      body: isJson ? JSON.stringify({ ...(isUrl ? { url: youtubeUrl.trim() } : { source_id: selectedSourceId }),
-        authorize_voice_clone: authorizeVoiceClone }) : inputVideo,
-    }));
-    const jobUrl = `/api/workflow-runs/${jobId}`;
-    runResult.jobId = jobId;
-    followTaskLog(jobId);
-    let previewReady = !isUrl;
-    if (previewReady) setPreviewJob(jobId);
-    void refreshTasks({ latest: true });
+async function monitorRun(jobId, previewReady = false) {
+  const jobUrl = `/api/workflow-runs/${jobId}`;
     while (true) {
       const status = await workflowResponse(await fetch(jobUrl));
       status.jobId = jobId;
@@ -1311,6 +1308,45 @@ $('run').onclick = async () => {
       }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
+}
+
+$('run').onclick = async () => {
+  if (busy || savingSettings.size) return;
+  if (Boolean(inputVideo) === Boolean(youtubeUrl.trim())) {
+    selectNode('probe_input');
+    focusNode();
+    toast('请选择一个 MP4 文件，或填写一个 YouTube 链接，两者只能使用一个。');
+    return;
+  }
+
+  setRunLock(true);
+  void refreshBackendModes();
+  setConsoleCollapsed(false);
+  setConsoleTab(false);
+  followTaskLog(null);
+  const isUrl = Boolean(youtubeUrl.trim());
+  const isJson = isUrl;
+  showRunResult({ state: 'running', phase: isUrl ? 'download' : 'workflow',
+    message: isUrl ? '正在准备原视频（已有素材将直接复用）…' : `正在读取 ${inputVideo.name}…` });
+  try {
+    const { job_id: jobId } = await workflowResponse(await fetch('/api/workflow-runs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': isJson ? 'application/json' : 'application/octet-stream',
+        'X-Authorize-Voice-Clone': 'true',
+        ...(outputDirectory.trim() ? { 'X-Output-Directory': encodeURIComponent(outputDirectory.trim()) } : {}),
+        ...(!isJson ? { 'X-Video-Name': encodeURIComponent(inputVideo.name) } : {}),
+      },
+      body: isJson ? JSON.stringify({ url: youtubeUrl.trim(),
+        authorize_voice_clone: true }) : inputVideo,
+    }));
+    const jobUrl = `/api/workflow-runs/${jobId}`;
+    runResult.jobId = jobId;
+    followTaskLog(jobId);
+    let previewReady = !isUrl;
+    if (previewReady) setPreviewJob(jobId);
+    void refreshTasks({ latest: true });
+    await monitorRun(jobId, previewReady);
   } catch (error) {
     showRunResult({ ...runResult, state: 'failed', message: error.message });
   } finally {
@@ -1353,8 +1389,18 @@ async function restoreRunStatus(jobId) {
   if (!jobId) return;
   try {
     const status = await workflowResponse(await fetch(`/api/workflow-runs/${jobId}`));
-    if (!runResult && getReviewView().jobId === jobId && status.state !== 'running') {
+    if (!runResult && getReviewView().jobId === jobId) {
       showRunResult({ ...status, jobId });
+      if (status.state === 'running') {
+        setRunLock(true);
+        followTaskLog(jobId);
+        try {
+          await monitorRun(jobId, Boolean(status.input_ready));
+        } finally {
+          setRunLock(false);
+          draw();
+        }
+      }
     }
   } catch {
     // The saved task may no longer be available.

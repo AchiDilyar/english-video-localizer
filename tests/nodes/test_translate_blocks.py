@@ -95,7 +95,7 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
         if not is_review:
             assert row["duration_ms"] == 5_000
             return {"items": [item(segment_id, "这种方法有效。")]}
-        assert row["zh_subtitle"] == "这种方法有效。"
+        assert row["zh_subtitle"] == "这种方法有效"
         assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle",
                             "available_duration_ms", "target_zh_chars", "target_zh_chars_per_second"}
         assert row['target_zh_chars'] >= 1
@@ -120,9 +120,9 @@ def test_build_translate_review_handoff_preserves_both_blocks(source_state, monk
     assert [(row.segment_id, row.block_id) for row in reviewed] == [
         ("seg_0001", "blk_0001"), ("seg_0002", "blk_0002")
     ]
-    assert reviewed[0].zh_subtitle == "只有样本量至少为 12 时才有效。"
-    assert reviewed[1].zh_subtitle == "不要减少样本量。"
-    assert state.translated_blocks[0].zh_subtitle == "这种方法有效。"
+    assert reviewed[0].zh_subtitle == "只有样本量至少为 12 时才有效"
+    assert reviewed[1].zh_subtitle == "不要减少样本量"
+    assert state.translated_blocks[0].zh_subtitle == "这种方法有效"
     for row in [*state.translated_blocks, *reviewed]:
         assert row.model_dump(exclude_none=True) == {
             "block_id": row.block_id, "segment_id": row.segment_id, "zh_subtitle": row.zh_subtitle,
@@ -166,6 +166,7 @@ def test_request_uses_the_node_local_deepseek_adapter(monkeypatch, tmp_path, con
             "DEEPSEEK_API_KEY=test-key\nDEEPSEEK_MODEL=test-model\n", encoding="utf-8"
         )
     else:
+        monkeypatch.setattr(_text_model, "text_model_env", lambda: tmp_path / ".env")
         monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
         monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
     client_class = httpx.Client
@@ -173,7 +174,8 @@ def test_request_uses_the_node_local_deepseek_adapter(monkeypatch, tmp_path, con
     def respond(request):
         body = json.loads(request.content)
         assert request.url.host == "api.deepseek.com"
-        assert request.headers["Authorization"] == "Bearer test-key"
+        if request.headers["Authorization"] != "Bearer test-key":
+            pytest.fail("Adapter did not use the fixture API key.", pytrace=False)
         assert body["model"] == "test-model"
         assert body["response_format"] == {"type": "json_object"}
         assert json.loads(body["messages"][1]["content"]) == {"segments": []}

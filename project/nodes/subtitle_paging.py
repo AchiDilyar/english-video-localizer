@@ -4,7 +4,31 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from PIL import ImageFont
-from subtitle_templates import GEOMETRY,reference_height
+from subtitle_templates import GEOMETRY,reference_height,style_font
+
+
+@lru_cache(None)
+def template_font(style_id, layout_id):
+    """Resolve the actual preset font, including the regular face in Songti's collection."""
+    family = style_font(style_id, layout_id)
+    filenames = {
+        'MiSans': ('MiSans-Regular.ttf', 0),
+        'MiSans Medium': ('MiSans-Medium.ttf', 0),
+        'MiSans Demibold': ('MiSans-Demibold.ttf', 0),
+        'Songti SC': ('Songti.ttc', 6),
+    }
+    filename, index = filenames[family]
+    directories = [
+        Path.home() / 'Library/Fonts', Path('/Library/Fonts'),
+        Path('/System/Library/Fonts/Supplemental'),
+        Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'Fonts',
+        Path.home() / '.local/share/fonts', Path('/usr/share/fonts'),
+    ]
+    for directory in directories:
+        matches = sorted(directory.rglob(filename)) if directory.is_dir() else []
+        if matches:
+            return str(matches[0]), index
+    raise ValueError(f'字幕模板字体未安装：{family}；请安装字体或配置 display_font_path 用于测量')
 
 
 @lru_cache(maxsize=1)
@@ -62,11 +86,17 @@ def clauses(text):
 
 
 class DisplayMetrics:
-    def __init__(self,width,height,font_path=None,*,strict_single_line=False):
+    def __init__(self,width,height,font_path=None,*,strict_single_line=False,style_id=None,layout_id='zh_top'):
         self.strict_single_line=strict_single_line
+        self.font_index = 0
+        if not font_path and style_id is not None:
+            font_path, self.font_index = template_font(style_id, layout_id)
         candidates=[font_path] if font_path else [
             str(Path(os.environ.get('SystemRoot','C:/Windows'))/'Fonts/msyh.ttc'),
             '/System/Library/Fonts/PingFang.ttc',
+            *sorted(str(path) for path in Path('/System/Library/AssetsV2').glob(
+                'com_apple_MobileAsset_Font*/*.asset/AssetData/PingFang.ttc')),
+            '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
             '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
         self.font_path=next((p for p in candidates if p and Path(p).is_file()),None)
@@ -77,7 +107,7 @@ class DisplayMetrics:
         self.sizes={lang:round(GEOMETRY[lang+'_size']*play_y/GEOMETRY['height']) for lang in ['zh','en']}
 
     @lru_cache(None)
-    def font(self,size):return ImageFont.truetype(self.font_path,size=max(1,size))
+    def font(self,size):return ImageFont.truetype(self.font_path,size=max(1,size),index=self.font_index)
 
     @lru_cache(None)
     def measure(self,text,lang):return self.font(self.sizes[lang]).getlength(' '.join(text.split()))

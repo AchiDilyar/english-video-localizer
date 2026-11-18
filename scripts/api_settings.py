@@ -1,4 +1,4 @@
-"""Local-only API configuration. Secrets are write-only to the browser."""
+"""Local-only API configuration. Saved keys are revealed individually on request."""
 
 import hmac
 import io
@@ -7,9 +7,11 @@ import re
 import secrets
 import tomllib
 from hashlib import sha256
+from urllib.parse import urlsplit
 
+import httpx
 from dotenv import dotenv_values
-from nodes.translate_blocks._deepseek import DeepSeekError, chat_url
+from nodes.translate_blocks._deepseek import DeepSeekError, chat_url, generate_json
 from workflow_modes import ConfigChanged, replace_config
 
 _SALT = secrets.token_bytes(32)
@@ -21,6 +23,35 @@ FIELDS = {
     "DASHSCOPE_WORKSPACE": "",
 }
 KEYS = ("DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY")
+
+
+def read_saved_key(env_path, name):
+    if name not in KEYS:
+        raise ValueError("未知密钥字段。")
+    return (dotenv_values(env_path, interpolate=False).get(name) or ""
+            if env_path.exists() else "")
+
+
+def test_translation_connection(env_path, payload):
+    if not isinstance(payload, dict):
+        raise ValueError("测试请求无效。")
+    base_url, model, api_key = (payload.get(name) for name in ("base_url", "model", "api_key"))
+    if any(not isinstance(value, str) or len(value) > 2048 or
+           any(ord(char) < 32 for char in value) for value in (base_url, model, api_key)):
+        raise ValueError("请检查接口地址、模型标识及密钥格式。")
+    if not model.strip():
+        raise ValueError("请填写翻译模型标识。")
+    target = urlsplit(chat_url(base_url))
+    if not api_key.strip():
+        saved = dotenv_values(env_path, interpolate=False) if env_path.exists() else {}
+        previous = urlsplit(chat_url(saved.get("DEEPSEEK_BASE_URL") or FIELDS["DEEPSEEK_BASE_URL"]))
+        if (target.hostname, target.port or 443) != (previous.hostname, previous.port or 443):
+            raise ValueError("接口域名或端口已更改，请填写该接口的 API Key 再测试。")
+        api_key = saved.get("DEEPSEEK_API_KEY") or ""
+    with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+        generate_json(client, 'Return a JSON object with "ok" set to true.',
+                      {"test": "connectivity"}, api_key=api_key, model=model.strip(),
+                      base_url=base_url)
 
 
 def snapshot(env_path, tts_path):

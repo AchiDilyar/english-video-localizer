@@ -112,3 +112,32 @@ def test_subtitle_style_and_layout_use_backend_catalog(tmp_path):
             "revision": saved["revision"], "values": {"style": "unsupported"},
         })
 
+
+
+def test_translation_dropdowns_preserve_nested_terminology(tmp_path, monkeypatch):
+    from nodes.translate_blocks import _options
+
+    path = tmp_path / 'translate_blocks.toml'
+    path.write_text('style = "通用"\n\n[terminology]\nenabled = true\n'
+                    '[terminology.entries]\n"style" = "风格"\n"sample size" = "样本量"\n')
+    snapshot = settings_snapshot('translate_blocks', path.read_bytes())
+    fields = {field['key']: field for field in snapshot['fields']}
+    assert fields['style']['choices'] == ["通用", "音乐行业", "影视", "新闻", "科学与技术", "文化与历史"]
+    assert fields['tone']['value'] == '遵循原文'
+    assert '口语自然' in fields['tone']['choices']
+    assert 'terminology' not in fields
+    before = tomllib.loads(path.read_text())['terminology']
+    saved = save_settings(path, 'translate_blocks', {
+        'revision': snapshot['revision'],
+        'values': {'style': '科学与技术', 'tone': '口语自然'},
+    })
+    data = tomllib.loads(path.read_text())
+    assert data['terminology'] == before
+    monkeypatch.setattr(_options, 'load_config', lambda name: data)
+    prompt = _options.with_style('Translate.')
+    assert '科学与技术' in prompt and '口语自然' in prompt
+    assert '数字、单位' in prompt
+    with pytest.raises(ValidationError):
+        save_settings(path, 'translate_blocks', {
+            'revision': saved['revision'], 'values': {'tone': '不存在'},
+        })

@@ -42,13 +42,27 @@ def test_final_ids_and_speakers_preserve_text_and_timing(sentence_table):
     assert set(segments[0].model_dump()) == {"segment_id", "speaker_id", "start_ms", "end_ms", "text_en"}
 
 
-@pytest.mark.parametrize("kind", ["unknown", "untimed", "overlap", "empty"])
+def test_missing_speakers_use_nearest_original_subtitle(sentence_table):
+    intervals = [(0, 50, None), (100, 200, "voice-A"), (250, 350, None),
+                 (360, 440, None), (500, 600, "voice-B"), (650, 700, None)]
+    sentence_table["sentences"] = [
+        {**sentence_table["sentences"][0], "sentence_id": f"sentence_{i:06d}",
+         "start_ms": start, "end_ms": end, "speaker_id": speaker}
+        for i, (start, end, speaker) in enumerate(intervals, 1)
+    ]
+    original = copy.deepcopy(sentence_table)
+    segments = node.to_segments(sentence_table)
+    assert [s.speaker_id for s in segments] == [
+        "spk_1", "spk_1", "spk_1", "spk_2", "spk_2", "spk_2",
+    ]
+    assert sentence_table == original
+
+
+@pytest.mark.parametrize("kind", ["untimed", "overlap", "empty"])
 def test_unusable_handoff_is_rejected(sentence_table, kind):
     for row in sentence_table["sentences"]:
         row["speaker_id"] = "voice-A"
-    if kind == "unknown":
-        sentence_table["sentences"][0]["speaker_id"] = None
-    elif kind == "untimed":
+    if kind == "untimed":
         sentence_table["review"]["untimed_utterances"] = [{"en": "Unaligned phrase."}]
     elif kind == "overlap":
         sentence_table["sentences"][1]["start_ms"] = 500

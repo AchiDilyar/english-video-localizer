@@ -41,7 +41,7 @@ def find_review_issues(state: GraphState) -> list[ReviewIssue]:
     instruction = with_style(AUDIT_PROMPT)
     issues: list[ReviewIssue] = []
     for block_id, block_drafts in grouped.items():
-        response = _text_model.request_json(
+        response = _text_model.request_for("repair_blocks",
             instruction=instruction,
             output_format=AUDIT_FORMAT,
             payload={
@@ -79,7 +79,7 @@ def repair_segments(state: GraphState, issues: list[ReviewIssue]) -> list[Transl
         selected = [draft for draft in block_drafts if draft.segment_id in issues_by_id]
         if not selected:
             continue
-        response = _text_model.request_json(
+        response = _text_model.request_for("repair_blocks",
             instruction=instruction,
             payload={
                 "terminology": state.terminology or {},

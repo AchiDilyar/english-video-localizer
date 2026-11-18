@@ -26,11 +26,15 @@ from utils.artifacts import ARTIFACT_SPECS
 from workflow_modes import ConfigChanged, mode_snapshot, save_modes
 from workflow_settings import OPTIONS, read_settings, save_settings, workflow_schema
 from api_settings import snapshot as api_snapshot, save as save_api_settings
+from api_settings import read_saved_key, test_translation_connection
+import model_settings
+from nodes.translate_blocks._deepseek import DeepSeekError
 from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 ASSETS = {
+    "/translation-models.js": ("translation-models.js", "text/javascript"),
     "/": ("index.html", "text/html"),
     "/workflow.css": ("workflow.css", "text/css"),
     "/workflow.js": ("workflow.js", "text/javascript"),
@@ -90,6 +94,13 @@ def node_progress(job: Path) -> dict:
 
 
 def write_status(job: Path, **status) -> None:
+    previous_path = job / "web-status.json"
+    previous = json.loads(previous_path.read_text(encoding="utf-8")) if previous_path.exists() else {}
+    metadata_path = job / "web-run.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    status["started_at"] = previous.get("started_at") or metadata.get("created_at") or time()
+    if status.get("state") != "running":
+        status["finished_at"] = time()
     temporary = job / "web-status.tmp"
     temporary.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
     temporary.replace(job / "web-status.json")
@@ -98,6 +109,22 @@ def write_status(job: Path, **status) -> None:
 def artifact_ready(job: Path, name: str) -> bool:
     path = job / ARTIFACT_SPECS[name].path
     return path.is_file() and path.stat().st_size > 0
+
+
+def export_final_video(job: Path, directory: Path) -> Path:
+    source = job / ARTIFACT_SPECS["final_video"].path
+    folder = directory / job.name
+    if folder == job.resolve():
+        return source
+    folder.mkdir()
+    pending = folder / ".final.mp4.partial"
+    try:
+        shutil.copyfile(source, pending)
+        return pending.replace(folder / source.name)
+    except OSError:
+        pending.unlink(missing_ok=True)
+        folder.rmdir()
+        raise
 
 
 def save_job_input(source, size: int, job: Path, source_dir: Path | None = None) -> Path:
@@ -167,6 +194,15 @@ class WorkflowServer(ThreadingHTTPServer):
     def read_run_status(self, job: Path) -> dict:
         status_file = job / "web-status.json"
         status = json.loads(status_file.read_text(encoding="utf-8"))
+        metadata_path = job / "web-run.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+        status["started_at"] = status.get("started_at") or metadata.get("created_at")
+        if status["state"] != "running" or self.active_job != job.name:
+            status["finished_at"] = status.get("finished_at") or status_file.stat().st_mtime
+        status["elapsed_seconds"] = (
+            max(0, (status.get("finished_at") or time()) - status["started_at"])
+            if status["started_at"] else None
+        )
         if status["state"] == "running" and self.active_job != job.name:
             status = json.loads(status_file.read_text(encoding="utf-8"))
             if status["state"] == "running":
@@ -247,6 +283,9 @@ class WorkflowServer(ThreadingHTTPServer):
                 "node_states": status.get("node_states", {}),
                 "input_ready": status.get("input_ready", False),
                 "phase": status.get("phase"),
+                "started_at": status.get("started_at"),
+                "finished_at": status.get("finished_at"),
+                "elapsed_seconds": status.get("elapsed_seconds"),
             })
         return {
             "jobs": result,
@@ -289,7 +328,18 @@ class WorkflowServer(ThreadingHTTPServer):
             if run.returncode:
                 write_status(job, state="failed", message=cli_failure(job))
             elif artifact_ready(job, "final_video"):
-                write_status(job, state="complete", message="成片已生成。")
+                directory = metadata.get("output_directory")
+                if directory:
+                    try:
+                        exported = export_final_video(job, Path(directory))
+                    except OSError:
+                        write_status(job, state="complete",
+                                     message="成片已保存在任务目录，自选目录导出失败，请检查目录权限和磁盘空间。")
+                    else:
+                        write_status(job, state="complete", message=f"成片已导出到 {exported}。",
+                                     exported_video=str(exported))
+                else:
+                    write_status(job, state="complete", message="成片已生成。")
             else:
                 write_status(
                     job, state="blocked",
@@ -437,6 +487,31 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         self.send_json(snapshot)
 
     def do_PUT(self) -> None:
+        if self.path == "/api/translation-models":
+            if not self.local_request():
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_json({"message": "模型配置请求必须使用 JSON。"}, 415)
+                return
+            if not self.server.worker_lock.acquire(blocking=False):
+                self.send_json({"message": "任务运行中，请结束后再修改模型配置。"}, 409)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16384:
+                    raise ValueError("模型配置请求大小无效。")
+                result = model_settings.save(self.server.env_path, json.loads(self.rfile.read(length)))
+            except ConfigChanged as error:
+                self.send_json({"message": str(error)}, 409)
+            except (ValueError, TypeError, DeepSeekError):
+                self.send_json({"message": "请检查模型配置、密钥、接口地址和选择项。"}, 400)
+            except OSError:
+                self.send_json({"message": "无法保存本机模型配置。"}, 503)
+            else:
+                self.send_json(result)
+            finally:
+                self.server.worker_lock.release()
+            return
         if self.path == "/api/api-settings":
             if not self.local_request():
                 return
@@ -482,6 +557,13 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_content((WEB / name).read_bytes(), content_type)
             return
         request = urlsplit(self.path)
+        if request.path == "/api/translation-models":
+            if self.local_request():
+                try:
+                    self.send_json(model_settings.snapshot(self.server.env_path))
+                except (OSError, ValueError, KeyError, DeepSeekError):
+                    self.send_json({"message": "无法读取本机翻译模型配置。"}, 503)
+            return
         if request.path == "/api/api-settings":
             if self.local_request():
                 try:
@@ -578,13 +660,141 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         self.send_json(self.server.list_runs(0))
 
     def do_POST(self) -> None:
+        key_match = re.fullmatch(r"/api/translation-models/(legacy|[0-9a-f]{32})/key", self.path)
+        if key_match:
+            if not self.local_request():
+                return
+            if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+                self.send_json({"message": "请从本机工作台查看密钥。"}, 403)
+                return
+            try:
+                self.send_json({"value": model_settings.profile_key(self.server.env_path, key_match.group(1))})
+            except (ValueError, KeyError, OSError):
+                self.send_json({"message": "无法读取该模型的密钥。"}, 400)
+            return
+        if self.path == "/api/translation-models/test":
+            if not self.local_request():
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_json({"message": "测试请求必须使用 JSON。"}, 415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16384:
+                    raise ValueError("测试请求大小无效。")
+                payload = model_settings.test_payload(self.server.env_path, json.loads(self.rfile.read(length)))
+                test_translation_connection(self.server.env_path, payload)
+            except (ValueError, TypeError, OSError):
+                self.send_json({"message": "请检查模型和密钥，更换接口后请填写对应密钥。"}, 400)
+            except DeepSeekError as error:
+                self.send_json({"message": str(error)}, 422)
+            else:
+                self.send_json({"message": "翻译模型连通，已返回 JSON。"})
+            return
+        if self.path == "/api/output-directory/pick":
+            if self.local_request():
+                self.pick_output_directory()
+            return
+        output_match = re.fullmatch(r"/api/workflow-runs/([0-9a-f]{32})/open-output", self.path)
+        if output_match:
+            if not self.local_request():
+                return
+            if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+                self.send_json({"message": "请从本机工作台打开输出目录。"}, 403)
+                return
+            job = self.server.find_run(output_match.group(1))
+            if not job.is_dir():
+                self.send_json({"message": "任务目录不存在。"}, 404)
+                return
+            try:
+                directory = job
+                if (job / "web-status.json").is_file():
+                    exported = self.server.read_run_status(job).get("exported_video")
+                    if exported and Path(exported).is_file():
+                        directory = Path(exported).parent
+                if os.name == "nt":
+                    os.startfile(str(directory))
+                else:
+                    subprocess.Popen(
+                        ["open" if sys.platform == "darwin" else "xdg-open", str(directory)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+            except (OSError, ValueError):
+                self.send_json({"message": "无法打开输出目录。"}, 503)
+            else:
+                self.send_json({"message": "已打开输出目录。"})
+            return
+        if self.path.startswith("/api/api-settings/reveal/"):
+            if not self.local_request():
+                return
+            if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+                self.send_json({"message": "请从本机 WebUI 查看已保存密钥。"}, 403)
+                return
+            try:
+                value = read_saved_key(self.server.env_path, self.path.rsplit("/", 1)[-1])
+            except ValueError:
+                self.send_json({"message": "未知密钥字段。"}, 400)
+            except OSError:
+                self.send_json({"message": "无法读取本机密钥。"}, 503)
+            else:
+                self.send_json({"value": value})
+            return
+        if self.path == "/api/api-settings/test-translation":
+            if self.local_request():
+                self.test_translation_api()
+            return
         if self.path != "/api/workflow-runs":
             self.send_error(404)
             return
         if self.local_request():
             self.start_workflow()
 
+    def pick_output_directory(self) -> None:
+        if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+            self.send_json({"message": "请从本机工作台选择输出目录。"}, 403)
+            return
+        if sys.platform != "darwin":
+            self.send_json({"message": "请在输出目录输入框填写本机目录路径。"}, 501)
+            return
+        try:
+            result = subprocess.run(
+                ["/usr/bin/osascript", "-e",
+                 'POSIX path of (choose folder with prompt "选择成片输出目录")'],
+                capture_output=True, text=True, timeout=90, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            self.send_json({"message": "无法打开目录选择器，请手动填写输出目录。"}, 503)
+            return
+        if result.returncode and "(-128)" not in result.stderr:
+            self.send_json({"message": "无法打开目录选择器，请手动填写输出目录。"}, 503)
+            return
+        self.send_json({"directory": result.stdout.rstrip("\n") if result.returncode == 0 else None})
+
+    def test_translation_api(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            self.send_json({"message": "测试请求必须使用 JSON。"}, 415)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 16384:
+                raise ValueError
+            payload = json.loads(self.rfile.read(length))
+        except ValueError:
+            self.send_json({"message": "测试请求无效。"}, 400)
+            return
+        try:
+            test_translation_connection(self.server.env_path, payload)
+        except DeepSeekError as error:
+            self.send_json({"message": str(error)}, 422)
+        except ValueError:
+            self.send_json({"message": "请检查地址、模型和密钥。更换接口域名或端口后请填写对应密钥。"}, 400)
+        except OSError:
+            self.send_json({"message": "无法读取本机 API 配置。"}, 503)
+        else:
+            self.send_json({"message": "翻译 API 连通，模型已返回 JSON。"})
+
     def start_workflow(self) -> None:
+        request_started = time()
         kind = self.headers.get_content_type()
         if kind not in ("application/octet-stream", "application/json"):
             self.send_json({"message": "请上传 MP4 或提交 YouTube 链接。"}, 415)
@@ -598,6 +808,20 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             return
         url = None
         selected_source = None
+        output_directory = None
+        encoded_directory = self.headers.get("X-Output-Directory")
+        if encoded_directory:
+            if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+                self.send_json({"message": "请从本机工作台设置输出目录。"}, 403)
+                return
+            try:
+                path = Path(unquote(encoded_directory, errors="strict")).expanduser()
+                if not path.is_absolute() or not path.is_dir():
+                    raise ValueError("invalid output directory")
+                output_directory = str(path.resolve(strict=True))
+            except (OSError, ValueError, RuntimeError):
+                self.send_json({"message": "输出目录无效，请选择本机已有的文件夹。"}, 400)
+                return
         authorize_voice_clone = self.headers.get("X-Authorize-Voice-Clone", "false") == "true"
         if self.headers.get("X-Authorize-Voice-Clone", "false") not in ("true", "false"):
             self.send_json({"message": "音色复刻授权必须明确选择。"}, 400)
@@ -630,7 +854,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             tts = tomllib.loads((self.server.config_dir / "tts.toml").read_text(encoding="utf-8"))
             if not mock.get("tts_align", False) and tts.get("voice_mode", "system") == "cloned" and not authorize_voice_clone:
                 self.server.worker_lock.release()
-                self.send_json({"message": "当前为原声复刻模式。请在视频输入中确认已获说话人授权并允许上传参考原声、创建音色，或改用系统音色。"}, 400)
+                self.send_json({"message": "原声复刻模式需要提供说话人授权。"}, 400)
                 return
             job.mkdir(parents=True, exist_ok=False)
             source_video = selected_source
@@ -641,9 +865,10 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             filename = re.split(r"[/\\]", filename)[-1]
             filename = "".join(character for character in filename if character.isprintable())[:180]
             (job / "web-run.json").write_text(
-                json.dumps({"filename": filename, "created_at": time(), "source_url": url,
+                json.dumps({"filename": filename, "created_at": request_started, "source_url": url,
                             "source_video": str(source_video) if source_video else None,
-                            "authorize_voice_clone": authorize_voice_clone},
+                            "authorize_voice_clone": authorize_voice_clone,
+                            "output_directory": output_directory},
                            ensure_ascii=False),
                 encoding="utf-8",
             )

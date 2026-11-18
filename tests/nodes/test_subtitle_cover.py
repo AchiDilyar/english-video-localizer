@@ -23,7 +23,7 @@ def test_speech_mode_uses_actual_speech_text_and_times(subtitle_job,subtitle_sta
     subtitle_cover(subtitle_state)
     result=(subtitle_job/'bilingual.srt').read_text(encoding='utf-8')
     assert '00:00:02,220 --> 00:00:02,600' in result
-    assert '实际配音。\nHello, world. Later.' in result
+    assert '实际配音\nHello, world. Later.' in result
     assert '00:00:00,000' not in result
 
 
@@ -73,7 +73,7 @@ def test_exports_tracks_on_the_same_source_timeline(subtitle_job, subtitle_state
     assert subtitle_cover(subtitle_state) == {}
     actual = {file.name: file.read_bytes().decode("utf-8") for file in subtitle_job.iterdir()}
     ass = actual.pop("burnin.ass")
-    assert r"Dialogue: 2,0:00:00.00,0:00:01.23,ZH,,0,0,185,,你好 世界" in ass
+    assert r"Dialogue: 2,0:00:00.00,0:00:01.23,ZH,,0,0,150,,你好 世界" in ass
     assert r"Dialogue: 1,0:00:00.00,0:00:01.23,EN,,0,0,0,,Hello,\Nworld." in ass
     assert actual == {
         "english_segmented.srt": f"{first}Hello,\nworld.\n\n{second}Later.\n",
@@ -188,3 +188,63 @@ def test_style_matrix_uses_video_size_and_saved_options(
         assert events[-1].endswith(r"Later.")
     else:
         assert events[-1].endswith(r"再见")
+
+
+@pytest.mark.parametrize("style", STYLES)
+@pytest.mark.parametrize("layout", LAYOUTS)
+@pytest.mark.parametrize("height", RESOLUTIONS)
+def test_paginated_speech_uses_preset_font_and_geometry(
+    subtitle_job, subtitle_state, monkeypatch, style, layout, height
+):
+    from subtitle_templates import ass_header, style_font
+    from nodes.subtitle_paging import DisplayMetrics
+
+    monkeypatch.setattr("nodes.compose_settings.load_config", lambda _: {})
+    monkeypatch.setattr("nodes.subtitle_cover.load_config", lambda _: {
+        "style": style, "layout": layout, "timing_source": "speech", "paginate": True,
+    })
+    monkeypatch.setattr("nodes.speech_subtitles.create_bilingual_cues", lambda *args: [
+        {"start_ms": 100, "end_ms": 2000, "zh": "你好世界。", "en": "Hello, world. Later."},
+    ])
+    video = subtitle_state.media_info.video_info
+    video.width, video.height = round(height * 16 / 9), height
+    subtitle_cover(subtitle_state)
+    result = (subtitle_job / "burnin.ass").read_text()
+    expected = ass_header(None, video.width, height, style, layout)
+    assert result.startswith(expected)
+    metrics = DisplayMetrics(video.width, height, style_id=style, layout_id=layout)
+    assert "PingFang" not in metrics.font_family
+    for lang in LAYOUTS[layout]["lines"]:
+        assert f"Style: {lang.upper()},{style_font(style, layout)}," in result
+
+
+@pytest.mark.parametrize("timing_source,paginate", [
+    ("source", False), ("source", True), ("speech", False), ("speech", True),
+])
+def test_final_chinese_punctuation_is_normalized_in_srt_and_ass(
+    subtitle_job, subtitle_state, monkeypatch, timing_source, paginate
+):
+    text = '他说："先录音、再混音；电平为-3.5 dB。" 继续吗？很好！'
+    expected = '他说 “先录音 再混音 电平为-3.5 dB” 继续吗？很好！'
+    original_english = "Hello, world. Later."
+    subtitle_state.reviewed_blocks[0].zh_subtitle = text
+    monkeypatch.setattr("nodes.subtitle_cover.load_config", lambda _: {
+        "timing_source": timing_source, "paginate": paginate,
+    })
+    monkeypatch.setattr("nodes.speech_subtitles.create_bilingual_cues", lambda *args: [
+        {"start_ms": 100, "end_ms": 2000, "zh": text, "en": original_english},
+    ])
+    subtitle_cover(subtitle_state)
+    chinese = (subtitle_job / "chinese.srt").read_text()
+    bilingual = (subtitle_job / "bilingual.srt").read_text()
+    ass = (subtitle_job / "burnin.ass").read_text()
+    # Pagination may split the display across cues. The actual exported text stays compliant.
+    for output in [chinese, bilingual, ass]:
+        assert "他说：" not in output and "录音、" not in output
+        assert "-3.5 dB" in output
+        assert "继续吗？" in output and "很好！" in output
+    if not paginate:
+        assert expected in chinese and expected in ass.replace(r"\N", " ")
+    if timing_source == "speech":
+        assert original_english in bilingual
+    assert subtitle_state.reviewed_blocks[0].zh_subtitle == text

@@ -1,6 +1,4 @@
 # ASS 风格与语言排布。分辨率档位由节点根据画面高度自动选择。
-layout = "zh_top"
-style = "clean"
 # 开启后淡入和淡出各 120 毫秒。
 fade_enabled = false
 timing_source = "speech"
@@ -8,3 +6,5 @@ speech_model_dir = "models/faster-whisper-small"
 paginate = true
 strict_single_line = true
 semantic_pairing = true
+layout = "zh_top"
+style = "refined"

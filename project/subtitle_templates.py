@@ -29,10 +29,14 @@ def ass_color(value):
     return f"&H{alpha:02X}{rgb[4:6]}{rgb[2:4]}{rgb[0:2]}".upper()
 
 
+def style_font(style_id, layout_id=DEFAULT_LAYOUT):
+    return STYLES[style_id].get("font", LAYOUTS[layout_id]["font"])
+
+
 def ass_header(font_name, width, height, style_id, layout_id=DEFAULT_LAYOUT):
     layout = LAYOUTS[layout_id]
     style = APPEARANCE | STYLES[style_id]
-    font = font_name or style.get("font", layout["font"])
+    font = font_name or style_font(style_id, layout_id)
     play_y = reference_height(height)
     play_x = max(1, round(play_y * width / height))
     scale = play_y / GEOMETRY["height"]

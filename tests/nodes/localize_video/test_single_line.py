@@ -11,7 +11,8 @@ from nodes.subtitle_paging import DisplayMetrics,paginate
   'en':'and as much as you yourself is seen as an important figure among black people in America, '},
 ])
 def test_previous_two_line_examples_become_sequential_one_line_pages(pair):
-    metrics=DisplayMetrics(1280,720,strict_single_line=True)
+    # These reported examples use the refined preset, whose font determines the cuts.
+    metrics=DisplayMetrics(1280,720,strict_single_line=True,style_id='refined')
     cue={**pair,'start_ms':1000,'end_ms':7000,'semantic_pair_locked':True}
     result=paginate([cue],metrics)
     assert len(result)>=2

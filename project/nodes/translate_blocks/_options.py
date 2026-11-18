@@ -7,6 +7,14 @@ from utils.config import load_config
 
 Term = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Style = Literal["通用", "音乐行业", "影视", "新闻", "科学与技术", "文化与历史"]
+Tone = Literal["遵循原文", "口语自然", "正式严谨", "简洁直白"]
+
+TONE_RULES: dict[Tone, str] = {
+    "遵循原文": "",
+    "口语自然": "用自然口语表达，适合听读，避免生硬直译，保留原文信息与人物语气。",
+    "正式严谨": "用规范、严谨的书面表达，准确保留术语、逻辑关系及语气强度。",
+    "简洁直白": "用简短直接的句式，减少冗余，保留关键信息、数字、否定和限定条件。",
+}
 
 _STYLE_RULES: dict[Style, str] = {
     "通用": "用自然清楚的现代汉语，保留原文语气和信息。",
@@ -29,6 +37,7 @@ class TranslationOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     style: Style = "通用"
+    tone: Tone = "遵循原文"
     terminology: TerminologyOptions = Field(default_factory=TerminologyOptions)
 
 
@@ -41,5 +50,8 @@ def load_options() -> TranslationOptions:
 
 
 def with_style(prompt: str) -> str:
-    style = load_options().style
-    return f"{prompt}\n翻译风格：{style}。{_STYLE_RULES[style]}"
+    options = load_options()
+    instruction = f"{prompt}\n翻译风格：{options.style}。{_STYLE_RULES[options.style]}"
+    if TONE_RULES[options.tone]:
+        instruction += f"\n表达风格：{options.tone}。{TONE_RULES[options.tone]}"
+    return instruction

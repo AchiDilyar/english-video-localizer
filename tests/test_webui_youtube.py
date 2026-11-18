@@ -4,7 +4,9 @@ import json
 import sys
 from pathlib import Path
 from threading import Thread
+from time import monotonic, sleep
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pytest
@@ -164,3 +166,64 @@ def test_target_video_inline_and_download_share_same_file(server):
     with urlopen(Request(url + '?download=0', headers={'Range': 'bytes=0-4'})) as response:
         assert response.status == 206
         assert response.read() == b'final'
+
+
+def test_custom_output_exports_video_and_opens_export_folder(server, tmp_path, monkeypatch):
+    import serve_workflow_ui as ui
+
+    destination = tmp_path / "自选 输出目录"
+    destination.mkdir()
+    origin = f"http://127.0.0.1:{server.server_port}"
+    headers = {
+        "Content-Type": "application/octet-stream", "Origin": origin,
+        "X-Video-Name": "test.mp4", "X-Authorize-Voice-Clone": "true",
+        "X-Output-Directory": quote(str(destination)),
+    }
+    (server.config_dir / "tts.toml").write_text('voice_mode = "cloned"\n')
+    artifact = ui.ARTIFACT_SPECS["final_video"].path
+
+    def run(command, **kwargs):
+        assert "--authorize-voice-clone" in command
+        target = Path(command[command.index("--work-dir") + 1]) / artifact
+        target.parent.mkdir()
+        target.write_bytes(b"rendered-video")
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(ui.subprocess, "run", run)
+    with urlopen(Request(origin + "/api/workflow-runs", data=b"input-video", headers=headers)) as response:
+        job_id = json.load(response)["job_id"]
+    deadline = monotonic() + 5
+    while server.worker_lock.locked() and monotonic() < deadline:
+        sleep(0.01)
+    job = server.jobs / job_id
+    exported = destination / job_id / "final.mp4"
+    assert exported.read_bytes() == (job / artifact).read_bytes() == b"rendered-video"
+    assert server.read_run_status(job)["final_video_ready"]
+
+    calls = []
+    monkeypatch.setattr(ui.sys, "platform", "darwin")
+    monkeypatch.setattr(ui.subprocess, "Popen", lambda args, **kwargs: calls.append(args))
+    with urlopen(Request(origin + f"/api/workflow-runs/{job_id}/open-output",
+                         method="POST", headers={"Origin": origin})) as response:
+        assert response.status == 200
+    assert calls == [["open", str(exported.parent)]]
+
+
+def test_open_output_requires_same_origin_and_uses_selected_job(server, monkeypatch):
+    import serve_workflow_ui
+
+    job_id = "a" * 32
+    job = server.jobs / job_id
+    job.mkdir()
+    calls = []
+    monkeypatch.setattr(serve_workflow_ui.sys, "platform", "darwin")
+    monkeypatch.setattr(serve_workflow_ui.subprocess, "Popen", lambda args, **kwargs: calls.append(args))
+    origin = f"http://127.0.0.1:{server.server_port}"
+    url = f"{origin}/api/workflow-runs/{job_id}/open-output"
+    with pytest.raises(HTTPError) as error:
+        urlopen(Request(url, method="POST", headers={"Origin": "https://example.com"}))
+    assert error.value.code == 403
+    assert calls == []
+    with urlopen(Request(url, method="POST", headers={"Origin": origin})) as response:
+        assert response.status == 200
+    assert calls == [["open", str(job)]]

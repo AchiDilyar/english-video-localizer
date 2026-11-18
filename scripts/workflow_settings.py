@@ -6,7 +6,6 @@ import tomllib
 from hashlib import sha256
 from pathlib import Path
 
-from dotenv import dotenv_values
 from graph.builder import WORKFLOW_EDGES
 from graph.registry import NODE_NAMES
 from graph.incremental import INCREMENTAL_NODE_NAMES
@@ -17,11 +16,13 @@ from nodes.build_blocks import DEFAULT_TERMINOLOGY, MAX_BLOCK_SPAN_MS
 from nodes.compose_settings import BITRATE_LABELS, RESOLUTION_LABELS, ComposeOptions
 from nodes.probe_input.node import ProbeOptions
 from nodes.subtitle_cover import SubtitleCoverOptions
-from nodes.translate_blocks._text_model import REQUEST_TIMEOUT_SEC, text_model_env, text_model_name
+from nodes.translate_blocks._text_model import REQUEST_TIMEOUT_SEC
+from nodes.translate_blocks._options import TranslationOptions
 from subtitle_templates import LAYOUTS, STYLES
 from workflow_modes import ConfigChanged, replace_config
 
 OPTIONS = {
+    "translate_blocks": TranslationOptions,
     "b_environment": EnvironmentOptions,
     "mix_background": MixOptions,
     "probe_input": ProbeOptions,
@@ -32,7 +33,10 @@ OPTIONS = {
 READ_ONLY = {"community1_python"}
 # Fields the workbench should not show. The backend models and save_settings
 # still accept them so existing TOML values stay intact.
-HIDDEN_FIELDS = {"probe_input": frozenset({"ffprobe", "ffmpeg"})}
+HIDDEN_FIELDS = {
+    "probe_input": frozenset({"ffprobe", "ffmpeg"}),
+    "translate_blocks": frozenset({"terminology"}),
+}
 CHOICES = {
     "device": ["cpu", "cuda"],
     "community1_device": ["cpu", "cuda"],
@@ -67,16 +71,23 @@ def settings_snapshot(node: str, source: bytes) -> dict:
     values = model.model_validate(tomllib.loads(source.decode("utf-8"))).model_dump()
     fields = []
     for key, schema in model.model_json_schema()["properties"].items():
+        if node == "translate_blocks" and key == "terminology":
+            continue
         variants = schema.get("anyOf", [schema])
         spec = next(item for item in variants if item["type"] != "null")
+        choices = CHOICES.get(key)
+        labels = CHOICE_LABELS.get(key)
+        if node == "translate_blocks":
+            choices = schema.get("enum")
+            labels = None
         fields.append({
             "key": key,
             "value": values[key],
             "type": spec["type"],
             "optional": any(item["type"] == "null" for item in variants),
             "readonly": key in READ_ONLY,
-            "choices": CHOICES.get(key),
-            "choice_labels": CHOICE_LABELS.get(key),
+            "choices": choices,
+            "choice_labels": labels,
             "min": spec.get("minimum", spec.get("exclusiveMinimum")),
             "max": spec.get("maximum"),
         })
@@ -99,7 +110,6 @@ def read_settings(config_dir: Path, node: str) -> dict:
         }}
     if node in ("translate_blocks", "review_blocks", "repair_blocks"):
         return {"fixed": {
-            "model": text_model_name(dotenv_values(text_model_env()).get("DEEPSEEK_MODEL")),
             "timeout_sec": REQUEST_TIMEOUT_SEC,
         }}
     if node == "tts_align":
@@ -136,6 +146,10 @@ def save_settings(path: Path, node: str, payload: dict) -> dict:
             expected[key] = value
     OPTIONS[node].model_validate(expected, strict=True)
 
+    # Editable options are root keys. Keep nested terminology tables in their original scope.
+    table_start = re.search(r"(?m)^[ \t]*\[", text)
+    tables = text[table_start.start():] if table_start else ""
+    text = text[:table_start.start()] if table_start else text
     for key in values:
         if key not in existing and key not in expected:
             continue
@@ -149,6 +163,7 @@ def save_settings(path: Path, node: str, payload: dict) -> dict:
             encoded = json.dumps(expected[key], ensure_ascii=False, allow_nan=False)
             text += ("" if not text or text.endswith("\n") else "\n") + f"{key} = {encoded}\n"
 
+    text += tables
     updated = text.encode("utf-8")
     if tomllib.loads(text) != expected:
         raise ValueError("无法保留现有 TOML 结构，请检查配置文件。")

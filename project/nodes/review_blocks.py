@@ -23,7 +23,7 @@ def review_blocks(state: GraphState) -> dict:
     budgets = budgets_for(state)
     reviewed: dict[str, TranslatedSegment] = {}
     for block_id, block_drafts in grouped.items():
-        response = _text_model.request_json(
+        response = _text_model.request_for("review_blocks",
             instruction=instruction,
             payload={
                 "terminology": state.terminology or {},

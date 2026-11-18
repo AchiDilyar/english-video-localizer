@@ -129,17 +129,32 @@ def to_segments(table: dict) -> list[Segment]:
         raise ValueError("UNTIMED_UTTERANCES: resolve missing phrase timings before team handoff")
     if not table["sentences"]:
         raise ValueError("No usable English sentences detected")
-    unresolved = [r["sentence_id"] for r in table["sentences"] if not r["speaker_id"]]
-    if unresolved:
+    rows = table["sentences"]
+    known = (row for row in rows if row["speaker_id"])
+    following = next(known, None)
+    if following is None:
         raise ValueError(
-            "UNRESOLVED_SPEAKER: shared Segment requires a speaker_id; "
-            "confirm the unknown-speaker policy with F/D. Affected sentences: "
-            + ", ".join(unresolved[:20])
+            "UNRESOLVED_SPEAKER: no subtitle has a speaker_id to use as a fallback"
         )
     mapping = {}
     segments = []
-    for i, row in enumerate(table["sentences"], 1):
-        speaker = mapping.setdefault(row["speaker_id"], f"spk_{len(mapping) + 1}")
+    previous = None
+    for i, row in enumerate(rows, 1):
+        source = row
+        if row["speaker_id"]:
+            previous = row
+            following = next(known, None)
+        else:
+            # Compare gaps to the original speaker assignments. A tie goes to the earlier cue.
+            if previous is None:
+                source = following
+            elif following is None or row["start_ms"] - previous["end_ms"] <= following["start_ms"] - row["end_ms"]:
+                source = previous
+            else:
+                source = following
+            logger.warning("Subtitle %s inherits speaker %s from nearest subtitle %s",
+                           row["sentence_id"], source["speaker_id"], source["sentence_id"])
+        speaker = mapping.setdefault(source["speaker_id"], f"spk_{len(mapping) + 1}")
         segments.append(Segment(segment_id=f"seg_{i:04d}", speaker_id=speaker,
                                 start_ms=row["start_ms"], end_ms=row["end_ms"], text_en=row["en"]))
     return segments

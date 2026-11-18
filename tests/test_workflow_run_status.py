@@ -82,3 +82,23 @@ def test_subtitle_status_requires_nonempty_ass(tmp_path):
     assert status["message"] == "烧录字幕 ASS 已生成，成片尚未生成。"
     assert status["state"] == "blocked"
     assert not status["final_video_ready"]
+
+
+def test_elapsed_time_survives_phase_changes_and_stops_at_finish(tmp_path, monkeypatch):
+    import serve_workflow_ui
+
+    (tmp_path / "web-run.json").write_text(json.dumps({"created_at": 1000.0}))
+    server = SimpleNamespace(active_job=tmp_path.name)
+    monkeypatch.setattr(serve_workflow_ui, "time", lambda: 1010.0)
+    write_status(tmp_path, state="running", phase="download")
+    monkeypatch.setattr(serve_workflow_ui, "time", lambda: 1050.0)
+    write_status(tmp_path, state="running", phase="workflow")
+    status = WorkflowServer.read_run_status(server, tmp_path)
+    assert status["started_at"] == 1000.0
+    assert status["elapsed_seconds"] == 50.0
+    monkeypatch.setattr(serve_workflow_ui, "time", lambda: 1100.0)
+    write_status(tmp_path, state="failed", message="test failure")
+    monkeypatch.setattr(serve_workflow_ui, "time", lambda: 1500.0)
+    status = WorkflowServer.read_run_status(server, tmp_path)
+    assert status["finished_at"] == 1100.0
+    assert status["elapsed_seconds"] == 100.0

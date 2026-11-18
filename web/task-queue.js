@@ -19,40 +19,60 @@ function el(tag, text, className) {
   return element;
 }
 
-function renderDetail() {
-  const detail = $('task-detail');
-  const job = jobs.find(item => item.id === selected);
-  detail.replaceChildren();
-  detail.hidden = !job;
-  if (!job) return;
-  const status = states[job.state] ?? '未知';
+function duration(seconds) {
+  if (!Number.isFinite(seconds)) return '未记录';
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  return minutes >= 60
+    ? `${Math.floor(minutes / 60)}小时 ${minutes % 60}分 ${total % 60}秒`
+    : `${minutes}分 ${String(total % 60).padStart(2, '0')}秒`;
+}
+
+function renderDetail(job) {
+  const detail = el('section', undefined, 'task-detail');
+  detail.setAttribute('aria-label', '任务详情');
   const node = job.phase === 'download' ? '下载原视频' : nodeNames.get(job.node) ?? job.node;
-  detail.append(el('h3', '任务详情'),
-    el('p', [status, node].filter(Boolean).join(' · '), 'task-detail-state'));
-  if (job.message) detail.append(el('p', job.message));
-  if (job.completed_nodes.length) {
-    detail.append(el('p', `已完成 ${job.completed_nodes.map(id => nodeNames.get(id) ?? id).join(' → ')}`));
+  const meta = el('dl', undefined, 'task-metadata');
+  for (const [label, value] of [
+    ['总用时', duration(job.elapsed_seconds)],
+    ['当前阶段', node || (job.state === 'complete' ? '合成完成' : '—')],
+    ['已完成', `${job.completed_nodes.length} / ${schema.length} 个节点`],
+  ]) {
+    const item = el('div');
+    item.append(el('dt', label), el('dd', value));
+    meta.append(item);
   }
-  detail.append(el('code', job.id));
-  const open = el('button', job.english_srt_ready || job.english_segments_ready ? '查看视频与字幕' : '查看源视频');
-  open.type = 'button';
-  open.disabled = job.input_ready === false;
-  open.onclick = () => {
+  detail.append(meta);
+  if (job.message) detail.append(el('p', job.message, 'task-message'));
+  detail.append(el('code', job.id, 'task-id'));
+  const actions = el('div', undefined, 'task-detail-actions');
+  const preview = el('button', '工作预览');
+  preview.type = 'button';
+  preview.disabled = job.input_ready === false;
+  preview.onclick = () => {
     $('node-inspector').close();
     openTaskSubtitles(job.id);
   };
-  const log = el('button', '查看后端日志');
-  log.type = 'button';
-  log.onclick = () => {
-    $('node-inspector').close();
-    document.dispatchEvent(new CustomEvent('open-task-log', { detail: job.id }));
+  const folder = el('button', '打开输出目录');
+  folder.type = 'button';
+  folder.onclick = async () => {
+    folder.disabled = true;
+    let error = detail.querySelector('[role="alert"]');
+    error?.remove();
+    try {
+      const response = await fetch(`${queueUrl}/${job.id}/open-output`, { method: 'POST' });
+      if (!response.ok) throw new Error((await response.json()).message);
+    } catch (cause) {
+      error = el('p', cause.message || '无法打开输出目录。', 'task-message');
+      error.setAttribute('role', 'alert');
+      detail.append(error);
+    } finally {
+      folder.disabled = false;
+    }
   };
-  detail.append(open, log);
-  if (job.final_video_ready) {
-    const download = el('a', '下载成片 MP4');
-    download.href = `/api/workflow-runs/${job.id}/final-video`;
-    detail.append(download);
-  }
+  actions.append(preview, folder);
+  detail.append(actions);
+  return detail;
 }
 
 function renderList(total, hasFinished = false) {
@@ -66,29 +86,36 @@ function renderList(total, hasFinished = false) {
   $('task-next').disabled = offset + pageSize >= total;
   $('task-page').textContent = `${Math.floor(offset / pageSize) + 1} / ${Math.max(1, Math.ceil(total / pageSize))}`;
   for (const job of jobs) {
-    const li = el('li');
+    const li = el('li', undefined, 'task-card');
     const row = el('button', undefined, 'task-row');
     row.type = 'button';
     row.dataset.jobId = job.id;
-    row.setAttribute('aria-pressed', String(job.id === selected));
+    row.setAttribute('aria-expanded', String(job.id === selected));
+    row.setAttribute('aria-controls', 'task-detail-' + job.id);
     const top = el('span', undefined, 'task-row-top');
     const badge = el('span', states[job.state] ?? '未知', 'task-badge');
     badge.dataset.state = job.state;
     top.append(el('strong', job.filename), badge);
     const date = new Date(job.created_at * 1000);
-    const time = el('time', Number.isNaN(date.valueOf()) ? job.id.slice(0, 8) : date.toLocaleString());
-    row.append(top, time);
+    const bottom = el('span', undefined, 'task-row-meta');
+    bottom.append(
+      el('time', Number.isNaN(date.valueOf()) ? job.id.slice(0, 8) : date.toLocaleString()),
+      el('span', duration(job.elapsed_seconds)),
+    );
+    row.append(top, bottom);
     row.onclick = () => {
-      selected = job.id;
-      for (const button of list.querySelectorAll('.task-row')) {
-        button.setAttribute('aria-pressed', String(button.dataset.jobId === selected));
-      }
-      renderDetail();
+      selected = selected === job.id ? null : job.id;
+      renderList(total, hasFinished);
+      list.querySelector(`[data-job-id="${job.id}"]`)?.focus({ preventScroll: true });
     };
     li.append(row);
+    if (job.id === selected) {
+      const detail = renderDetail(job);
+      detail.id = 'task-detail-' + job.id;
+      li.append(detail);
+    }
     list.append(li);
   }
-  renderDetail();
 }
 
 export async function refreshTasks({ latest = false } = {}) {

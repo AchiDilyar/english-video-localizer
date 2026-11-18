@@ -58,7 +58,7 @@ def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, dr
         (row,) = request["payload"]["segments"]
         audited_ids.append(row["segment_id"])
         if row["segment_id"] == "seg_0001":
-            assert row["zh_subtitle"] == draft_text
+            assert row["zh_subtitle"] == draft_text.rstrip("。")
             assert set(row) == {"segment_id", "text_en", "duration_ms", "zh_subtitle"}
             return {"issues": [{"segment_id": "seg_0001", "reason": reason, "target": "subtitle"}]}
         assert "样本量" in row["zh_subtitle"]
@@ -86,7 +86,7 @@ def test_audit_and_repair_only_change_the_flagged_segment(state, monkeypatch, dr
     assert repaired[0].zh_subtitle == "样本量至少为十二才能继续"
     assert repaired[0].block_id == "blk_0001"
     assert repaired[1] is state.reviewed_blocks[1]
-    assert state.reviewed_blocks[0].zh_subtitle == draft_text
+    assert state.reviewed_blocks[0].zh_subtitle == draft_text.rstrip("。")
 
 
 def test_audit_rejects_an_id_outside_its_block(state, monkeypatch):

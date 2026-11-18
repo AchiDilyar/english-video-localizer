@@ -135,7 +135,8 @@ def unify_final_cues(state,options,cues):
         parents[key]={'start_ms':rows[0]['start_ms'],'end_ms':rows[-1]['end_ms'],
                       'source_segment_ids':script['segment_ids'],'audio_text_spans':spans}
     video=state.media_info.video_info;width,height=load_compose_options().output_size(video.width,video.height)
-    metrics=DisplayMetrics(width,height,options.display_font_path)
+    metrics=DisplayMetrics(width,height,options.display_font_path,
+                           style_id=options.style,layout_id=options.layout)
     from .localize_video.c_content import plan_bilingual_parts
     warnings=[]
     mapping=plan_bilingual_parts(groups,_text_model.request_json,warnings=warnings)

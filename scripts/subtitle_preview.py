@@ -76,7 +76,9 @@ def structured_cues(job: Path, stage: str) -> list[dict] | None:
 
     by_id = {}
     if stage in TRANSLATIONS:
-        translations = read_rows(job, TRANSLATIONS[stage])
+        translations = read_rows(job, "repaired_blocks") if stage == "final" else None
+        if translations is None:
+            translations = read_rows(job, TRANSLATIONS[stage])
         if translations is None:
             return None
         by_id = {row.segment_id: row.zh_subtitle for row in translations}

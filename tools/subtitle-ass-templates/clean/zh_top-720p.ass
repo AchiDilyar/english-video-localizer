@@ -1,0 +1,17 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+Collisions: Normal
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ZH,MiSans Medium,43,&H00FFFFFF,&H00ADE7FF,&H00241107,&H80000000,0,0,0,0,100,100,0,0,1,2.33,0.00,2,73,73,55,1
+Style: EN,MiSans Medium,33,&H00FFFFFF,&H00ADE7FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2.17,0.00,2,73,73,23,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 2,0:00:00.00,0:00:04.00,ZH,,0,0,0,,让知识跨越语言。
+Dialogue: 1,0:00:00.00,0:00:04.00,EN,,0,0,0,,Let knowledge cross languages.
