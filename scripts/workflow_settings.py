@@ -106,6 +106,7 @@ def read_settings(config_dir: Path, node: str) -> dict:
         config = tomllib.loads((config_dir / "tts.toml").read_text(encoding="utf-8"))
         return {"fixed": {key: config[key] for key in (
             "model", "voice_mode", "min_speed", "max_speedup", "natural_groups",
+            "duration_repair_attempts", "duration_exhaustion_policy",
             "max_forward_delay_ms", "short_audio_policy"
         ) if key in config}}
     return {"fixed": {}}

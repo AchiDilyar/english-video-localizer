@@ -36,7 +36,6 @@ def generate_json(
     *,
     api_key: str,
     model: str = DEFAULT_MODEL,
-    max_tokens: int = 4096,
     base_url: str = DEFAULT_BASE_URL,
 ) -> dict:
     if not api_key.strip():
@@ -49,7 +48,6 @@ def generate_json(
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
         "response_format": {"type": "json_object"},
-        "max_tokens": max_tokens,
     }
     # Provider-specific parameters are not part of the generic compatible API.
     if urlsplit(url).hostname == "api.deepseek.com":
@@ -75,7 +73,7 @@ def generate_json(
     try:
         choice = response.json()["choices"][0]
         if choice["finish_reason"] == "length":
-            raise DeepSeekError("DeepSeek 输出被截断，请缩小批次或提高输出上限。")
+            raise DeepSeekError("模型服务端报告输出被截断（finish_reason=length）；本程序未设置输出 token 上限。请检查服务端默认限制，或缩小单次请求批次。")
         result = json.loads(choice["message"]["content"])
     except (ValueError, TypeError, KeyError, IndexError):
         raise DeepSeekError("DeepSeek 返回了空白或无效的 JSON，请重试。") from None

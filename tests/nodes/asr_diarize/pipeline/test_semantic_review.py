@@ -86,7 +86,19 @@ class SemanticReviewTests(unittest.TestCase):
             self.assertEqual(network.call_count,1)
             sent=json.loads(network.call_args.args[0].data)
             self.assertNotIn('test-only-not-a-real-key',json.dumps(sent))
+            self.assertNotIn('max_tokens',sent)
+            self.assertNotIn('max_completion_tokens',sent)
             self.assertEqual(client.usage,[{'total_tokens':10}])
+
+    def test_large_semantic_input_has_no_local_token_cutoff(self):
+        from unittest.mock import MagicMock
+        response=MagicMock();response.__enter__.return_value=response
+        content=json.dumps({'ends':[1201],'needs_human_review':True})
+        response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':content}}]}).encode()
+        with patch.dict('os.environ',{'DEEPSEEK_API_KEY':'fake-key','DEEPSEEK_MODEL':'fake-model'},clear=True),patch('urllib.request.urlopen',return_value=response) as network:
+            actual=DeepSeekHTTP(allow_network=True)({'tokens':['word']*1201})
+            self.assertEqual(actual['ends'],[1201])
+            self.assertEqual(network.call_count,1)
 
     def test_alignment_is_still_in_memory_during_semantic_review(self):
         from types import SimpleNamespace

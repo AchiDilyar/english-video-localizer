@@ -113,6 +113,9 @@ def create_bilingual_cues(state,model_dir):
     report_path=Path(artifact_path('tts_audio','alignment_report.json'))
     script=json.loads(script_path.read_text(encoding='utf-8')) if script_path.exists() else []
     reports=json.loads(report_path.read_text(encoding='utf-8')) if report_path.exists() else []
+    if reports and state.media_info:
+        from .dubbing_timing import validate_final_timeline
+        validate_final_timeline(reports,state.media_info.duration_ms)
     source={s.segment_id:s.text_en for s in sorted(state.segments,key=lambda s:s.start_ms)}
     reviewed={s.segment_id:s.zh_subtitle for s in state.reviewed_blocks}
     script_by_id={g['group_id']:g['text'] for g in script}
@@ -200,6 +203,9 @@ def render_cue_tracks(state,options,cues):
             '分页仅改变显示，不改变配音。无合法双语切点时最多两行保留完整分句；时间插值处需回听核对。\n'
             '以下条目为较小字号，需人工检查：\n'+'\n'.join(
                 f"{c['start_ms']/1000:.3f}–{c['end_ms']/1000:.3f}秒: {c['zh']} | {c['en']}" for c in small),encoding='utf-8')
+    from .dubbing_timing import validate_display_cues
+    expected=' '.join(s.text_en for s in sorted(state.segments,key=lambda item:item.start_ms))
+    validate_display_cues(cues,state.media_info.duration_ms,expected)
     for i,cue in enumerate(cues,1):
         header=f"{i}\n{_timestamp(cue['start_ms'])} --> {_timestamp(cue['end_ms'])}\n"
         english=cue.get('en_display',cue['en']);chinese=cue.get('zh_display',cue['zh'])

@@ -61,6 +61,7 @@ class VoicePlan:
     min_speech_fill_ratio: float = 0.0
     min_slowdown_window_ms: int = 1000
     duration_repair_attempts: int = 0
+    duration_exhaustion_policy: str = 'error'
     short_duration_policy: str = 'error'
     source_expression: bool = False
     source_pacing: bool = False
@@ -115,7 +116,9 @@ def build_voice_plan(config: dict) -> VoicePlan:
     if type(source_pacing) is not bool:raise ValueError('source_pacing 必须为布尔值')
     if type(source_expression) is not bool:raise ValueError('source_expression 必须为布尔值')
     if short_policy not in {'error','warn'}:raise ValueError('short_duration_policy 必须为 error 或 warn')
-    if type(attempts) is not int or not 0<=attempts<=2:raise ValueError('duration_repair_attempts 必须为 0–2')
+    if type(attempts) is not int or not 0<=attempts<=8:raise ValueError('duration_repair_attempts 必须为 0–8')
+    exhaustion=config.get('duration_exhaustion_policy','error')
+    if exhaustion not in {'error','use_best','use_latest'}:raise ValueError('duration_exhaustion_policy 必须为 error、use_best 或 use_latest')
     if type(min_window) is not int or min_window<0:raise ValueError('min_slowdown_window_ms 必须为非负整数')
     return VoicePlan(
         model=str(config.get("model", DEFAULT_MODEL)),
@@ -125,7 +128,7 @@ def build_voice_plan(config: dict) -> VoicePlan:
         unknown_speaker=str(config.get("unknown_speaker", DEFAULT_UNKNOWN_SPEAKER)),
         overrides={str(k): str(v) for k, v in overrides.items()},
         voice_mode=mode,max_speedup=max_speedup,natural_groups=natural_groups,max_forward_delay_ms=forward_delay,
-        min_speed=min_speed,min_speech_fill_ratio=fill,min_slowdown_window_ms=min_window,duration_repair_attempts=attempts,
+        min_speed=min_speed,min_speech_fill_ratio=fill,min_slowdown_window_ms=min_window,duration_repair_attempts=attempts,duration_exhaustion_policy=exhaustion,
         short_duration_policy=short_policy,
         source_expression=source_expression,
         source_pacing=source_pacing,
@@ -441,6 +444,11 @@ def tts_align(state: GraphState) -> dict:
             speaker_order.append(segment.speaker_id)
 
     plan = load_voice_plan()
+    from .dubbing_timing import DubbingPolicy, reserve_end_limits, schedule_segment
+    policy=DubbingPolicy.from_plan(plan)
+    if plan.natural_groups:
+        from .natural_dubbing import make_groups
+        reserve_end_limits(make_groups(state),duration_ms,policy)
     if plan.voice_mode=='cloned':
         from .auto_voice_profiles import ensure_profiles
         from dotenv import load_dotenv
@@ -479,11 +487,10 @@ def tts_align(state: GraphState) -> dict:
                 if not raw.exists():synthesize_clip(text,voice_id,plan.model,plan.sample_rate,raw)
                 return raw,wav_duration_ms(raw)
             def schedule(ms):
-                if ms>available_ms*plan.max_speedup:raise ValueError('TTS_TEXT_TOO_LONG: 配音超时')
-                return segment.start_ms,max(segment.end_ms-segment.start_ms,min(ms,available_ms))
+                return schedule_segment(group,ms,policy)
             audio_path=Path(artifact_path('tts_audio',f'{item.segment_id}.wav'))
             def finalize(raw,position):
-                fit_to_window(raw,audio_path,position[1],plan.sample_rate,max_speedup=plan.max_speedup,min_speed=plan.min_speed)
+                fit_to_window(raw,audio_path,position[1],plan.sample_rate,max_speedup=policy.speed_cap(group),min_speed=policy.min_speed)
                 return json.loads(audio_path.with_suffix('.speed.json').read_text(encoding='utf-8'))
             raw,raw_ms,(_,window_ms)=measure_with_repair(group,plan,prepare,schedule,
                 {'voice':voice_id,'model':plan.model,'sample_rate':plan.sample_rate},finalize)

@@ -25,3 +25,7 @@ config/subtitle_cover.toml启用timing_source=speech、paginate=true、semantic_
 历史五分钟实验通过当时的BCDE四阶段LangGraph（该入口现已停用）复用B/C/D同源验证缓存，E真实重跑；182项相关测试通过。字幕、配音、背景及非语言声音均有摘要和来源记录，未额外调用TTS或学校模型。原始英文识别仍有待人工核对项，字幕时间也不等于逐词人工强制对齐验收。
 
 旧两行实验仅作为本地历史基准，不是当前规则。源码以2026-11-17交付分支（本轮按用户授权发布main）交付，设计变更待F确认；历史中间文件不上传。
+
+### 非法语义切点的局部回退（2026-11-18）
+
+出现Chinese semantic cut must follow punctuation时，拒绝模型在中文非标点位置的切法，但不再使整片退出。request_pairs对每组独立校验，非法切点、改写或覆盖不全的建议均丢弃；以该组完整原中英文进入本地分页。strict_single_line继续保证各语言单行，保留内容与顺序，分页时间仍按最终音频文本位置分配，不修改配音分组。subtitles/semantic_pair_warnings.json记录组ID、失败原因及回退方式。合法组照常使用语义配对；模型改写的英文永不发布。回归包含实际字体单行布局与连续时间覆盖检查。

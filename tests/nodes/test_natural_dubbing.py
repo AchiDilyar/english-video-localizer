@@ -90,3 +90,56 @@ def test_continuous_group_is_synthesized_once_and_chunks_reconstruct_signal(tmp_
     assert len(calls)==2 # Reuse paid synthesis for unchanged text/voice/model.
     report=json.loads((tmp_path/'tts/alignment_report.json').read_text())
     assert all(not r['speech_trimmed'] for r in report)
+
+
+def test_exhausted_group_can_speed_up_but_cannot_extend_into_next_group():
+    from nodes.natural_dubbing import schedule_window
+    plan=SimpleNamespace(max_speedup=1.35,max_forward_delay_ms=500)
+    group={'group_id':'g','start_ms':100,'original_end_ms':2000,'available_end_ms':2200,'duration_exhausted':True}
+    start,window=schedule_window(group,10000,0,5000,plan)
+    assert (start,window)==(100,2100)
+    assert start+window==2200
+
+
+def test_last_group_uses_remaining_video_window_after_previous_borrowing():
+    import pytest
+    from nodes.natural_dubbing import schedule_window
+    plan=SimpleNamespace(max_speedup=1.35,max_forward_delay_ms=500)
+    group={'group_id':'dub_0024','start_ms':115080,'original_end_ms':119920,'available_end_ms':120000}
+    start,window=schedule_window(group,5000,115404,120000,plan)
+    assert (start,window)==(115404,4596)
+    assert start+window==120000 and 5000/window<1.35
+    with pytest.raises(ValueError,match='TTS_TEXT_TOO_LONG'):
+        schedule_window(group,7000,115404,120000,plan)
+    group['duration_exhausted']=True
+    assert schedule_window(group,7000,115404,120000,plan)==(115404,4596)
+
+
+def test_no_remaining_time_is_not_silently_accepted():
+    import pytest
+    from nodes.natural_dubbing import schedule_window
+    plan=SimpleNamespace(max_speedup=1.35,max_forward_delay_ms=500)
+    group={'group_id':'last','start_ms':119700,'original_end_ms':120000,'available_end_ms':120000}
+    with pytest.raises(ValueError,match='DUB_FORWARD_DELAY_LIMIT'):
+        schedule_window(group,500,120000,120000,plan)
+
+
+def test_compressed_group_member_cuts_preserve_all_pcm_frames():
+    from nodes.natural_dubbing import group_frame_cuts
+    source={'seg_0001':Segment(segment_id='seg_0001',speaker_id='spk_1',start_ms=10000,end_ms=15400,text_en='A.'),
+            'seg_0002':Segment(segment_id='seg_0002',speaker_id='spk_1',start_ms=15420,end_ms=15500,text_en='B.')}
+    group={'segment_ids':list(source),'start_ms':10000,'original_end_ms':15500}
+    total=5340*24
+    cuts,scale=group_frame_cuts(group,source,total,24000)
+    assert cuts[0]==0 and cuts[-1]==total and 0<cuts[1]<total
+    assert scale==5340/5500
+    pcm=bytes(range(256))*(total*2//256+1);pcm=pcm[:total*2]
+    parts=[pcm[a*2:b*2] for a,b in zip(cuts,cuts[1:])]
+    assert all(parts) and b''.join(parts)==pcm
+
+
+def test_member_frame_rounding_still_keeps_every_member_nonempty():
+    from nodes.natural_dubbing import group_frame_cuts
+    source={f'seg_{i+1:04d}':Segment(segment_id=f'seg_{i+1:04d}',speaker_id='spk_1',start_ms=t,end_ms=t+1,text_en='Yes.') for i,t in enumerate([0,998,999])}
+    cuts,_=group_frame_cuts({'segment_ids':list(source),'start_ms':0,'original_end_ms':1000},source,3,24000)
+    assert cuts==[0,1,2,3]

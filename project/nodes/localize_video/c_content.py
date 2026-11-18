@@ -8,9 +8,9 @@ def run_c(state,nodes=None):
     return run_nodes(state,nodes)
 
 
-def plan_bilingual_parts(groups,request_json):
+def plan_bilingual_parts(groups,request_json,**kwargs):
     from nodes.semantic_subtitles import request_pairs
-    return request_pairs(groups,request_json)
+    return request_pairs(groups,request_json,**kwargs)
 
 
 def request_narration_change(**request):

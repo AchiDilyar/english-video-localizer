@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from ._deepseek import DEFAULT_BASE_URL, DEFAULT_MODEL, generate_json
 
-REQUEST_TIMEOUT_SEC = 60.0
+REQUEST_TIMEOUT_SEC = 180.0
 
 SUBTITLE_PUNCTUATION_RULES = (
     "\n「把中文字幕标点规范写进共用提示词」\n"

@@ -19,12 +19,12 @@ def subtitle_job(tmp_path, monkeypatch):
 def test_speech_mode_uses_actual_speech_text_and_times(subtitle_job,subtitle_state,monkeypatch):
     monkeypatch.setattr('nodes.subtitle_cover.load_config',lambda _: {'timing_source':'speech'})
     monkeypatch.setattr('nodes.speech_subtitles.create_bilingual_cues',lambda *args:[
-        {'start_ms':2220,'end_ms':2600,'zh':'实际配音。','en':'Actual speech.'}])
+        {'start_ms':2220,'end_ms':2600,'zh':'实际配音。','en':'Hello, world. Later.'}])
     subtitle_cover(subtitle_state)
     result=(subtitle_job/'bilingual.srt').read_text(encoding='utf-8')
     assert '00:00:02,220 --> 00:00:02,600' in result
-    assert '实际配音。\nActual speech.' in result
-    assert 'Hello' not in result
+    assert '实际配音。\nHello, world. Later.' in result
+    assert '00:00:00,000' not in result
 
 
 def test_speech_mode_does_not_fall_back_to_old_times_if_audio_missing(subtitle_job,subtitle_state,monkeypatch):

@@ -80,10 +80,9 @@ class DeepSeekHTTP:
 
     def __call__(self,payload):
         if self.calls>=self.max_calls:raise BError('SEMANTIC_BUDGET','Semantic call budget exhausted')
-        if len(payload['tokens'])>1200:raise BError('SEMANTIC_INPUT_LIMIT','One text review is limited to 1200 whitespace tokens')
         self.calls+=1;started=time.perf_counter()
         body={'model':self.model,'messages':[{'role':'user','content':review_prompt(payload)}],
-              'response_format':{'type':'json_object'},'max_tokens':2048,'stream':False}
+              'response_format':{'type':'json_object'},'stream':False}
         request=urllib.request.Request(self.url,data=json.dumps(body).encode('utf-8'),
                  headers={'Authorization':'Bearer '+self.key,'Content-Type':'application/json'})
         try:

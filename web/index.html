@@ -164,6 +164,7 @@
     <form id="api-settings-form" autocomplete="off">
       <header class="review-heading"><h2 id="api-settings-title">API 设置</h2><button id="api-settings-close" type="button" aria-label="关闭 API 设置">×</button></header>
       <p>仅保存在本机。密钥留空保留已有值，保存后不回显；修改在下次任务生效。</p>
+      <p>文本模型请求不设置本地输出 token 上限，实际输出长度由服务端默认值及模型容量决定；未承诺无限上下文。</p>
       <fieldset><legend>翻译与审校 · DeepSeek 兼容接口</legend>
         <label>接口地址<input name="DEEPSEEK_BASE_URL" type="url" required placeholder="https://gateway.example.org/v1"></label>
         <label>模型标识<input name="DEEPSEEK_MODEL" required placeholder="填写学校账号提供的模型标识"></label>

@@ -2,7 +2,6 @@
 import hashlib
 import json
 import logging
-import math
 import os
 import wave
 from pathlib import Path
@@ -11,6 +10,7 @@ from contracts import TTSClip
 from utils.io import write_artifact
 from utils.paths import artifact_path
 from .translate_blocks import _text_model
+from .dubbing_timing import DubbingPolicy, member_frame_cuts, reserve_end_limits, schedule_group, validate_final_timeline
 
 logger=logging.getLogger(__name__)
 
@@ -72,29 +72,20 @@ def raw_cache_path(group,voice,plan):
     return Path(artifact_path('tts_audio',f'group_{fingerprint}.raw.wav'))
 
 
-def schedule_window(group,raw_ms,cursor,video_end,plan):
-    """Keep source starts as lower bounds; permit only bounded forward slip."""
-    if raw_ms<=0:raise ValueError('TTS_EMPTY_AUDIO: 合成音频没有有效时长')
-    allowance=getattr(plan,'max_forward_delay_ms',0)
-    start=max(group['start_ms'],cursor)
-    if start-group['start_ms']>allowance:
-        raise ValueError(f"DUB_FORWARD_DELAY_LIMIT: {group['group_id']}，需精简前面的配音稿")
-    available=group['available_end_ms']-start
-    window=max(group['original_end_ms']-group['start_ms'],min(raw_ms,available))
-    if allowance:
-        window=max(window,math.ceil(raw_ms/min(1.30,plan.max_speedup)))
-        if raw_ms<=700:window=max(window,raw_ms) # Keep very short acknowledgements natural.
-    limit=min(group['available_end_ms']+allowance,video_end)-start
-    window=min(window,limit)
-    if window<group['original_end_ms']-group['start_ms']:
-        raise ValueError(f"DUB_FORWARD_DELAY_LIMIT: {group['group_id']}，延迟超限或超过视频结尾，请精简配音稿")
-    if raw_ms>window*plan.max_speedup:
-        raise ValueError(f"TTS_TEXT_TOO_LONG: {group['group_id']} 实测 {raw_ms}ms，可用 {available}ms，请精简配音稿")
-    return start,window
+def schedule_window(group,raw_ms,cursor,video_end,plan,*,end_limit=None):
+    return schedule_group(group,raw_ms,cursor,video_end,DubbingPolicy.from_plan(plan),end_limit=end_limit)
+
+
+def group_frame_cuts(group,source,total_frames,sample_rate):
+    return member_frame_cuts(group,source,total_frames,sample_rate)
 
 
 def synthesize_groups(state,plan,voices,synthesize,fit,duration,assemble):
+    policy=DubbingPolicy.from_plan(plan)
+    video_end=state.media_info.duration_ms if state.media_info else max(s.end_ms for s in state.segments)
+    reserve_end_limits(make_groups(state),video_end,policy)
     groups=prepare_script(state)
+    end_limits=reserve_end_limits(groups,video_end,policy)
     if getattr(plan,'source_expression',False) or os.getenv('LOCALIZER_SOURCE_EXPRESSION')=='1':
         from .source_expression import describe
         for group in groups:
@@ -117,30 +108,28 @@ def synthesize_groups(state,plan,voices,synthesize,fit,duration,assemble):
         fitted=Path(artifact_path('tts_audio',group['group_id']+'.wav'))
         def finalize(raw,position):
             fit_kwargs={'distribute_pause_padding':True} if getattr(plan,'source_pacing',False) else {}
-            fit(raw,fitted,position[1],plan.sample_rate,max_speedup=plan.max_speedup,min_speed=getattr(plan,'min_speed',1.0),**fit_kwargs)
+            fit(raw,fitted,position[1],plan.sample_rate,max_speedup=policy.speed_cap(group),min_speed=getattr(plan,'min_speed',1.0),**fit_kwargs)
             receipt=fitted.with_suffix('.speed.json')
             return json.loads(receipt.read_text(encoding='utf-8')) if receipt.exists() else None
         raw,raw_ms,(actual_start,window)=measure_with_repair(group,plan,prepare,
-            lambda ms:schedule_window(group,ms,cursor,video_end,plan),
+            lambda ms:schedule_window(group,ms,cursor,video_end,plan,end_limit=end_limits[group['group_id']]),
             {'voice':voice,'model':plan.model,'sample_rate':plan.sample_rate},finalize)
         cursor=actual_start+window
-        # Split the continuous PCM at existing cue boundaries for the unchanged
-        # per-segment artifact contract. Concatenating these chunks restores the
-        # group signal; no TTS reset, fade or silence is inserted at those cuts.
+        # Member files are contract artifacts, not final subtitle timing. Scale
+        # their internal boundaries when the final group is compressed.
         with wave.open(str(fitted),'rb') as audio:
             params=audio.getparams();frames=audio.readframes(audio.getnframes())
+        frame_width=params.nchannels*params.sampwidth
+        cuts,member_scale=group_frame_cuts(group,source,len(frames)//frame_width,params.framerate)
         for i,key in enumerate(group['segment_ids']):
-            segment=source[key]
-            end=source[group['segment_ids'][i+1]].start_ms if i+1<len(group['segment_ids']) else group['start_ms']+window
-            if end<=segment.start_ms:raise ValueError('语义组配音结束早于成员字幕开始')
-            start_frame=round((segment.start_ms-group['start_ms'])*plan.sample_rate/1000)
-            end_frame=round((end-group['start_ms'])*plan.sample_rate/1000)
             path=Path(artifact_path('tts_audio',key+'.wav'))
             with wave.open(str(path),'wb') as part:
-                part.setparams(params);part.writeframes(frames[start_frame*2:end_frame*2])
+                part.setparams(params);part.writeframes(frames[cuts[i]*frame_width:cuts[i+1]*frame_width])
             clips.append(TTSClip(segment_id=key,audio_path=path.name,duration_ms=duration(path),
                 text=subtitles[key],voice_id=voice,model=plan.model))
-            placed.append((actual_start+segment.start_ms-group['start_ms'],path))
+        # Assemble whole groups, avoiding millisecond rounding gaps/overlap
+        # between frame-exact member artifacts after time compression.
+        placed.append((actual_start,fitted))
         reports.append({'group_id':group['group_id'],'segment_ids':group['segment_ids'],
             'raw_audio_file':raw.name,'timing_file':raw.with_suffix('.timing.json').name,
             'tempo':json.loads(fitted.with_suffix('.speed.json').read_text())['tempo'] if fitted.with_suffix('.speed.json').exists() else 1.0,
@@ -148,9 +137,11 @@ def synthesize_groups(state,plan,voices,synthesize,fit,duration,assemble):
             'forward_delay_ms':actual_start-group['start_ms'],
             'raw_duration_ms':raw_ms,'window_ms':window,'nominal_speed_ratio':raw_ms/window,
             'target_source_speech_span_ms':group['original_end_ms']-group['start_ms'],
-            'speech_trimmed':False,'internal_cue_alignment':'original relative cuts retained; group may shift forward; phrase onset not forced'})
+            'speech_trimmed':False,'member_cut_frame_offsets':cuts,'member_timeline_scale':member_scale,
+            'internal_cue_alignment':'member PCM cuts mapped to final group duration; subtitle timing generated from final speech'})
+    validate_final_timeline(reports,video_end)
     write_artifact('tts_clips',clips)
     Path(artifact_path('tts_audio','dubbing_script.json')).write_text(json.dumps(groups,ensure_ascii=False,indent=2),encoding='utf-8')
     Path(artifact_path('tts_audio','alignment_report.json')).write_text(json.dumps(reports,ensure_ascii=False,indent=2),encoding='utf-8')
-    assemble(placed,Path(artifact_path('dub_audio')),max(start+c.duration_ms for (start,_),c in zip(placed,clips)),plan.sample_rate)
+    assemble(placed,Path(artifact_path('dub_audio')),video_end,plan.sample_rate)
     return {'tts_clips':clips}
