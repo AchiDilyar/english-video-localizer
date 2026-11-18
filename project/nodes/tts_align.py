@@ -22,6 +22,7 @@ import tempfile
 import time
 import wave
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 from contracts import GraphState, TTSClip
@@ -178,15 +179,15 @@ def resolve_ffmpeg() -> str:
     """按 `architecture.md` 第 11 节定位 ffmpeg。
 
     查找顺序：
-    1. 仓库根 `.tools/ffmpeg/bin/ffmpeg.exe`（该分支仅 Windows 有效）；
+    1. 仓库根 `.tools/ffmpeg/bin/ffmpeg`（Windows 使用 `ffmpeg.exe`）；
     2. 系统 `PATH`。
 
     两处都找不到时抛出 `FileNotFoundError`，按节点失败处理，不静默降级。
     """
-    if os.name == "nt":
-        candidate = _REPO_ROOT / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
-        if candidate.is_file():
-            return str(candidate)
+    filename = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidate = _REPO_ROOT / ".tools" / "ffmpeg" / "bin" / filename
+    if candidate.is_file():
+        return str(candidate)
     found = shutil.which("ffmpeg")
     if found:
         return found
@@ -321,6 +322,21 @@ def assemble_dub(placed: list[tuple[int, Path]], out_path: Path, total_ms: int, 
 # 语音合成
 # ---------------------------------------------------------------------------
 
+def connect_tts_socket(url, headers, *, read_timeout):
+    import websocket
+
+    for attempt in range(1, 4):
+        try:
+            connection = websocket.create_connection(url, header=headers, timeout=10)
+        except (TimeoutError, ConnectionResetError, websocket.WebSocketTimeoutException) as error:
+            if attempt == 3:
+                raise RuntimeError("连接 DashScope 配音服务失败，3 次 WebSocket 建连均未成功。") from error
+            logger.warning("DashScope 配音 WebSocket 第 %s 次建连失败，正在重试。", attempt)
+            time.sleep(0.5 * attempt)
+        else:
+            connection.settimeout(read_timeout)
+            return connection
+
 
 def synthesize_clip(
     text: str, voice_id: str, model: str, sample_rate: int, out_path: Path, *, conditioning=None
@@ -359,7 +375,8 @@ def synthesize_clip(
     parameters={'word_timestamp_enabled':True}
     if conditioning:parameters.update({k:conditioning[k] for k in ['instruction','language_hints','rate'] if k in conditioning})
     with client.audio.tts.connect(model=model,voice=voice_id,format='wav',sample_rate=sample_rate,
-                                  parameters=parameters) as session:
+                                  parameters=parameters,
+                                  connector=partial(connect_tts_socket, read_timeout=client.config.timeout)) as session:
         session.send_text(text)
         session.stop()
         for event in session.events():

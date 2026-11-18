@@ -730,30 +730,11 @@ input:invalid,textarea:invalid {
 #console-toggle[aria-expanded="false"] svg {
   transform: rotate(180deg);
 }
-.console-tabs {
-  display:flex;
-  gap:13px;
-  height:100%
-}
-.console-tabs button {
-  border-radius:0;
-  border:0;
-  background:none;
-  padding:0 2px;
+#log-heading {
+  margin:0;
+  color:var(--text);
   font-size:10px;
-  color:var(--muted);
-  border-bottom:2px solid transparent
-}
-.console-tabs button[aria-selected=true] {
-  border-bottom-color:var(--accent);
-  color:var(--accent)
-}
-.console-tabs span {
-  font:9px var(--mono);
-  margin-left:3px;
-  background:var(--surface);
-  padding:1px 4px;
-  border-radius: var(--radius)
+  font-weight:600;
 }
 .console-bar #run-status {
   color:var(--success);
@@ -773,7 +754,7 @@ input:invalid,textarea:invalid {
   color:var(--muted);
   padding:10px 17px 4px
 }
-#log-panel,#output-panel {
+#log-panel {
   height:calc(100% - 37px);
   overflow:auto
 }
@@ -791,9 +772,6 @@ pre {
   font:11px/1.8 var(--mono);
   color:var(--muted);
   margin:0
-}
-#console-output {
-  padding:10px 17px
 }
 .role-tag {
   font:10px var(--mono);
@@ -1259,9 +1237,6 @@ dialog::backdrop {
   .console-bar {
     gap:5px
   }
-  .console-tabs {
-    gap:9px
-  }
 
 }
 @media(max-width:900px) {
@@ -1326,7 +1301,7 @@ dialog::backdrop {
   .console-bar #run-status {
     font-size:9px
   }
-  .console-tabs button {
+  #log-heading {
     font-size:9px
   }
   .console-hint {
@@ -2320,6 +2295,8 @@ body {
 .node-api-settings .api-clear { display:flex; align-items:center; gap:5px; }
 .node-api-settings p { margin:6px 0; font-size:11px; white-space:normal; line-height:1.5; }
 .node-api-settings [role="status"]:empty { display:none; }
+.speech-test[data-state="success"] { color:var(--success); border-color:currentColor; }
+.speech-test[data-state="error"] { color:var(--danger); }
 .source-input-row { display:flex; align-items:center; gap:5px; margin-bottom:8px; font-size:12px; }
 .source-input-row .source-url { flex:1; width:0; min-width:0; }
 .source-input-row button { flex:none; padding:6px; font-size:11px; }
@@ -2352,7 +2329,7 @@ body {
 .task-metadata dd { margin:0; font-size:12px; font-variant-numeric:tabular-nums; }
 .task-detail .task-message { font-size:12px; color:var(--muted); line-height:1.65; overflow-wrap:anywhere; }
 .task-detail .task-id { color:var(--muted); font-size:10px; }
-.task-detail-actions { display:flex; align-items:center; gap:8px; }
+.task-detail-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .task-detail-actions button { padding:7px 12px; font-size:12px; border-radius:var(--radius); }
 .task-detail-actions button:first-child { color:var(--accent); background:color-mix(in srgb,var(--accent) 7%,var(--surface)); }
 

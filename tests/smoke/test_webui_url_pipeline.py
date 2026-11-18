@@ -124,7 +124,7 @@ def test_web_url_to_captioned_video(server, tmp_path, monkeypatch, download_fail
     monkeypatch.setattr(ui.subprocess, "run", child)
     with urlopen(request(server, {"url": "https://youtu.be/jNQXAC9IVRw"})) as response:
         job_id = json.load(response)["job_id"]
-    job = server.jobs / job_id
+    job = server.find_run(job_id)
     deadline = monotonic() + 30
     while server.worker_lock.locked() and monotonic() < deadline:
         sleep(0.03)

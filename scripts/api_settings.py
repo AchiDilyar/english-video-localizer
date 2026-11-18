@@ -54,6 +54,42 @@ def test_translation_connection(env_path, payload):
                       base_url=base_url)
 
 
+def test_speech_connection(env_path, payload):
+    from dashscope.transport.ws import WS_INFERENCE_PATH, workspace_ws_url
+    from nodes.tts_align import connect_tts_socket
+    from websocket import WebSocketException
+
+    if not isinstance(payload, dict):
+        raise ValueError("测试请求无效。")
+    region, workspace, api_key = (payload.get(name) for name in ("region", "workspace", "api_key"))
+    if any(not isinstance(value, str) or len(value) > 2048 or
+           any(ord(char) < 32 for char in value) for value in (region, workspace, api_key)):
+        raise ValueError("请检查地域、业务空间和 API Key 的格式。")
+    if workspace and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,62}", workspace):
+        raise ValueError("请填写业务空间 ID，例如 llm-xxx。")
+    if not api_key:
+        saved = dotenv_values(env_path, interpolate=False)
+        if region != (saved.get("DASHSCOPE_REGION") or FIELDS["DASHSCOPE_REGION"]):
+            raise ValueError("更换地域后，请填写该地域的 API Key。")
+        api_key = saved.get("DASHSCOPE_API_KEY") or ""
+        if not api_key:
+            raise ValueError("请填写配音 API Key。")
+    try:
+        url = workspace_ws_url(workspace or None, WS_INFERENCE_PATH, region)
+    except ValueError:
+        raise ValueError("配音地域无效，例如新加坡填写 ap-southeast-1。") from None
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if workspace:
+        headers["X-DashScope-Workspace"] = workspace
+    try:
+        connection = connect_tts_socket(url, headers, read_timeout=10)
+    except (WebSocketException, OSError, RuntimeError) as error:
+        if getattr(error, "status_code", None) in (401, 403):
+            raise RuntimeError("DashScope 拒绝认证，请核对地域、业务空间和 API Key。") from None
+        raise RuntimeError("无法建立 DashScope WebSocket，请检查网络和业务空间 ID。") from None
+    connection.close(timeout=1)
+
+
 def snapshot(env_path, tts_path):
     raw = env_path.read_bytes() if env_path.exists() else b""
     tts = tts_path.read_bytes()

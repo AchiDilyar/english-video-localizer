@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,8 @@ from utils.paths import artifact_path
 
 def _find_ffmpeg() -> str:
     repo_root = Path(__file__).resolve().parents[2]
-    candidate = repo_root / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    filename = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidate = repo_root / ".tools" / "ffmpeg" / "bin" / filename
     if candidate.is_file():
         return str(candidate)
     found = shutil.which("ffmpeg")

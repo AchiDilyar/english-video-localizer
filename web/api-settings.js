@@ -37,6 +37,7 @@ export function createApiSettings(provider, { locked = false, onPending, onSaved
     return input;
   }
   for (const field of fields) addInput(...field);
+  controls.get('DASHSCOPE_REGION').placeholder = 'ap-southeast-1（新加坡）';
   const secret = addInput(key, 'API Key', 'password');
   const status = document.createElement('p');
   status.setAttribute('role', 'status');
@@ -45,6 +46,7 @@ export function createApiSettings(provider, { locked = false, onPending, onSaved
   let configured = false;
   let revealed = null;
   let revealing;
+  let testing;
   let version = 0;
   function conceal() {
     revealing?.abort();
@@ -147,12 +149,62 @@ export function createApiSettings(provider, { locked = false, onPending, onSaved
   const save = document.createElement('button');
   save.type = 'submit';
   save.textContent = '保存';
-  group.append(save);
+  const actions = document.createElement('div');
+  actions.className = 'model-actions';
+  const test = document.createElement('button');
+  test.type = 'button';
+  test.className = 'speech-test';
+  test.textContent = '测试连通性';
+  function resetTest() {
+    testing?.abort();
+    testing = null;
+    test.disabled = false;
+    test.textContent = '测试连通性';
+    delete test.dataset.state;
+    status.textContent = '';
+  }
+  form.addEventListener('input', resetTest);
+  test.onclick = async () => {
+    if (!controls.get('DASHSCOPE_REGION').reportValidity()) return;
+    const controller = new AbortController();
+    testing = controller;
+    test.disabled = true;
+    test.textContent = '正在测试…';
+    delete test.dataset.state;
+    status.textContent = '';
+    try {
+      const data = await request(endpoint + '/test-speech', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+        body: JSON.stringify({
+          region: controls.get('DASHSCOPE_REGION').value.trim(),
+          workspace: controls.get('DASHSCOPE_WORKSPACE').value.trim(),
+          api_key: editedKey(),
+        }),
+      });
+      if (controller.signal.aborted) return;
+      test.dataset.state = 'success';
+      test.textContent = '✓ 已连通';
+      status.textContent = data.message;
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      test.dataset.state = 'error';
+      test.textContent = '重试连通性';
+      status.textContent = error.message;
+    } finally {
+      if (testing === controller) {
+        testing = null;
+        test.disabled = false;
+      }
+    }
+  };
+  actions.append(save, test);
+  group.append(actions);
 
   // Clear detached forms and cancel an in-flight reveal when a card is rebuilt.
   const cleanup = new MutationObserver(() => {
     if (!form.isConnected) {
       version += 1;
+      testing?.abort();
       conceal();
       document.removeEventListener('node-api-updated', refreshAfterSave);
       cleanup.disconnect();

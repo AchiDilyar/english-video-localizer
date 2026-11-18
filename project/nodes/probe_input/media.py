@@ -30,10 +30,8 @@ class MediaError(Exception):
 
 
 def tool_path(name: str, override: str | None = None) -> str:
-    candidate = override or shutil.which(name)
-    if not candidate:
-        local = ROOT / '.tools' / 'ffmpeg' / 'bin' / (name + ('.exe' if os.name == 'nt' else ''))
-        candidate = str(local) if local.is_file() else None
+    local = ROOT / '.tools' / 'ffmpeg' / 'bin' / (name + ('.exe' if os.name == 'nt' else ''))
+    candidate = override or (str(local) if local.is_file() else shutil.which(name))
     if not candidate or not Path(candidate).is_file():
         raise MediaError('DEPENDENCY_MISSING', f'{name} not found; use --{name} or project-local .tools/ffmpeg/bin')
     return str(Path(candidate).resolve())

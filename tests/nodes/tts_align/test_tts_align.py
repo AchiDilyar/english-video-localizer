@@ -198,14 +198,33 @@ def test_shipped_config_is_usable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(os.name != "nt", reason=".tools 分支仅 Windows 生效")
 def test_resolve_ffmpeg_prefers_project_tools(monkeypatch, tmp_path):
-    fake = tmp_path / ".tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    fake = tmp_path / ".tools" / "ffmpeg" / "bin" / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     fake.parent.mkdir(parents=True)
     fake.write_bytes(b"stub")
     monkeypatch.setattr(tts_align, "_REPO_ROOT", tmp_path)
 
     assert tts_align.resolve_ffmpeg() == str(fake)
+
+
+def test_tts_websocket_retries_only_before_a_connection_is_established(monkeypatch):
+    import websocket
+    from unittest.mock import Mock
+
+    connection = Mock()
+    connect = Mock(side_effect=[TimeoutError(), websocket.WebSocketTimeoutException(), connection])
+    monkeypatch.setattr(websocket, "create_connection", connect)
+    monkeypatch.setattr(tts_align.time, "sleep", lambda _: None)
+
+    assert tts_align.connect_tts_socket("wss://example.test", {}, read_timeout=60) is connection
+    assert connect.call_count == 3
+    connection.settimeout.assert_called_once_with(60)
+
+    connect.reset_mock(side_effect=True)
+    connect.side_effect = websocket.WebSocketBadStatusException("unauthorized", status_code=401)
+    with pytest.raises(websocket.WebSocketBadStatusException):
+        tts_align.connect_tts_socket("wss://example.test", {}, read_timeout=60)
+    assert connect.call_count == 1
 
 
 @requires_ffmpeg

@@ -154,6 +154,9 @@ $('tasks-clear').onclick = async () => {
     jobs = result.jobs;
     clearing = false;
     renderList(result.total, result.has_finished);
+    document.dispatchEvent(new CustomEvent('task-queue-cleared', {
+      detail: result.jobs.map(job => job.id),
+    }));
   } catch {
     $('task-summary').textContent = '清空失败，可刷新队列后重试。';
     $('tasks-clear').disabled = false;

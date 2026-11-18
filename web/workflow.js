@@ -15,6 +15,7 @@ const DEFAULT_CAMERA = { x: 23, y: 11, scale: 0.86 };
 const index = new Map(schema.map(node => [node.id, node]));
 const modeLabels = { mock: '禁用', real: '启用' };
 const narrowScreen = matchMedia('(max-width:640px)');
+const macOS = /^Mac/.test(navigator.platform);
 const MAX_ANCHORS = 16;
 const edgeKey = (from, to) => `${from}:${to}`;
 const edgeKeys = new Set(edges.map(([from, to]) => edgeKey(from, to)));
@@ -32,6 +33,7 @@ let config = defaults();
 let anchors = {};
 let selected = 'probe_input';
 let camera = { ...DEFAULT_CAMERA };
+let cameraFrame = 0;
 let drag = null;
 let busy = false;
 let history = [];
@@ -98,7 +100,6 @@ function validateView(view) {
     selected: ['subtitle_render', 'cover_localize'].includes(view?.selected) ? 'subtitle_cover' :
       index.has(view?.selected) ? view.selected : 'probe_input',
     consoleCollapsed: view?.consoleCollapsed === true,
-    consoleTab: view?.consoleTab === 'output' ? 'output' : 'log',
     review: {
       tab: review?.tab === 'subtitles' ? 'subtitles' : 'workflow',
       stage: ['initial', 'segmented', 'draft', 'final'].includes(review?.stage) ? review.stage : 'segmented',
@@ -128,7 +129,6 @@ function persist() {
   const view = {
     camera, selected,
     consoleCollapsed: $('console').classList.contains('collapsed'),
-    consoleTab: $('output-tab').getAttribute('aria-selected') === 'true' ? 'output' : 'log',
     review: getReviewView(),
   };
   const data = JSON.stringify({ nodes: config, anchors, view });
@@ -449,7 +449,6 @@ function selectNode(id) {
     selected = id;
     scheduleViewSave();
   }
-  updateOutput();
   draw();
 }
 const configLabels = {
@@ -694,7 +693,7 @@ function renderStepStrip() {
     button.dataset.step = node.id;
     button.style.setProperty('--node-category', categories[node.category].color);
     button.append(el('span', 'step-index', node.symbol), el('span', 'step-title', node.title));
-    button.onclick = () => { selectNode(node.id); focusNode(); };
+    button.onclick = () => { selectNode(node.id); focusNode(true); };
     strip.append(button);
   }
 }
@@ -876,24 +875,54 @@ function drawMinimap(graph) {
     fill: 'var(--map-window)', stroke: 'var(--map-outline)', 'stroke-width': 1,
   }));
 }
-function fit() {
+function fit(animate = false) {
   const box = bounds(), width = $('canvas').clientWidth, height = $('canvas').clientHeight;
   if (width < 64 || height < 120) return;
-  camera.scale = Math.max(0.08, Math.min(1, (width - 48) / (box.right - box.left), (height - 95) / (box.bottom - box.top)));
-  camera.x = (width - (box.right + box.left) * camera.scale) / 2;
-  camera.y = (height - (box.bottom + box.top) * camera.scale) / 2 + 8;
-  draw();
-  scheduleViewSave();
+  const scale = Math.max(0.08, Math.min(1, (width - 48) / (box.right - box.left), (height - 95) / (box.bottom - box.top)));
+  moveCamera({
+    x: (width - (box.right + box.left) * scale) / 2,
+    y: (height - (box.bottom + box.top) * scale) / 2 + 8,
+    scale,
+  }, animate);
 }
-function focusNode() {
-  camera.scale = Math.min(1, ($('canvas').clientWidth - 54) / config[selected].width, ($('canvas').clientHeight - 110) / nodeHeight(selected));
-  camera.scale = Math.max(0.3, camera.scale);
-  camera.x = $('canvas').clientWidth / 2 - (config[selected].x + config[selected].width / 2) * camera.scale;
-  camera.y = $('canvas').clientHeight / 2 - (config[selected].y + nodeHeight(selected) / 2) * camera.scale;
-  draw();
-  scheduleViewSave();
+function focusNode(animate = false) {
+  const { clientWidth: width, clientHeight: height } = $('canvas');
+  const node = config[selected];
+  const cardHeight = nodeHeight(selected);
+  const scale = Math.max(0.3, Math.min(1, (width - 54) / node.width, (height - 110) / cardHeight));
+  moveCamera({
+    x: width / 2 - (node.x + node.width / 2) * scale,
+    y: height / 2 - (node.y + cardHeight / 2) * scale,
+    scale,
+  }, animate);
+}
+function moveCamera(target, animate) {
+  cancelAnimationFrame(cameraFrame);
+  if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    camera = target;
+    draw();
+    scheduleViewSave();
+    return;
+  }
+  clearTimeout(viewSaveTimer);
+  const origin = { ...camera };
+  const started = performance.now();
+  function move(now) {
+    const progress = Math.min(1, (now - started) / 420);
+    const eased = progress * progress * (3 - 2 * progress);
+    camera = {
+      x: origin.x + (target.x - origin.x) * eased,
+      y: origin.y + (target.y - origin.y) * eased,
+      scale: origin.scale + (target.scale - origin.scale) * eased,
+    };
+    draw();
+    if (progress < 1) cameraFrame = requestAnimationFrame(move);
+    else scheduleViewSave();
+  }
+  cameraFrame = requestAnimationFrame(move);
 }
 function zoomBy(factor, x = $('canvas').clientWidth / 2, y = $('canvas').clientHeight / 2) {
+  cancelAnimationFrame(cameraFrame);
   const scale = Math.min(1.8, Math.max(0.08, camera.scale * factor));
   const ratio = scale / camera.scale;
   camera = { x: x - (x - camera.x) * ratio, y: y - (y - camera.y) * ratio, scale };
@@ -980,6 +1009,7 @@ links.addEventListener('contextmenu', event => {
 $('canvas').addEventListener('pointerdown', event => {
   const handle = event.target.closest('.node-resize');
   if (drag || minimapDrag || event.button !== 0 || (!handle && event.target.closest('input,select,textarea,button,.viewport-controls,.minimap-wrap'))) return;
+  cancelAnimationFrame(cameraFrame);
   const card = event.target.closest('.node');
   if (card && !handle && !event.target.closest('.node-header')) return;
   const node = card?.dataset.node;
@@ -1033,23 +1063,43 @@ $('canvas').addEventListener('wheel', event => {
     event.preventDefault();
     return;
   }
-  // Keep wheel input out of focused number fields to avoid accidental value edits.
+  const canvas = $('canvas');
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? canvas.clientHeight : 1;
+  const dx = event.deltaX * unit;
+  const dy = event.deltaY * unit;
+  if (event.ctrlKey) {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    zoomBy(Math.exp(-dy * 0.0015), event.clientX - rect.left, event.clientY - rect.top);
+    return;
+  }
+  // Scroll node settings without changing a focused number input.
   const fields = event.target.closest('.node-fields');
   if (fields && fields.scrollHeight > fields.clientHeight) {
     if (event.target.closest('input[type=number],select')) {
-      fields.scrollTop += event.deltaY;
+      fields.scrollTop += dy;
       event.preventDefault();
     }
     return;
   }
   if (event.target.closest('input,select,textarea')) { event.preventDefault(); return; }
   event.preventDefault();
-  const rect = $('canvas').getBoundingClientRect();
-  zoomBy(Math.exp(-event.deltaY * 0.0015), event.clientX - rect.left, event.clientY - rect.top);
+  if (macOS) {
+    cancelAnimationFrame(cameraFrame);
+    camera.x -= dx;
+    camera.y -= dy;
+    draw();
+    scheduleViewSave();
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  zoomBy(Math.exp(-dy * 0.0015), event.clientX - rect.left, event.clientY - rect.top);
 }, { passive: false });
 const minimap = $('minimap');
 minimap.addEventListener('pointerdown', event => {
   if (event.button !== 0 || event.target.id !== 'minimap-viewport' || drag || minimapDrag) return;
+  cancelAnimationFrame(cameraFrame);
   const inverse = minimap.getScreenCTM().inverse();
   const start = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
   minimapDrag = { pointer: event.pointerId, inverse, start, camera: { ...camera }, bounds: minimapBounds };
@@ -1081,8 +1131,8 @@ for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 $('zoom-in').onclick = () => zoomBy(1.2);
 $('zoom-out').onclick = () => zoomBy(1 / 1.2);
 $('zoom').onclick = () => zoomBy(1 / camera.scale);
-$('fit').onclick = fit;
-$('focus').onclick = focusNode;
+$('fit').onclick = () => fit(true);
+$('focus').onclick = () => focusNode(true);
 $('fullscreen').onclick = async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -1103,15 +1153,6 @@ taskDrawer.addEventListener('click', event => {
 });
 
 $('help').onclick = () => $('canvas-help').showModal();
-function setConsoleTab(output) {
-  $('log-tab').setAttribute('aria-selected', String(!output));
-  $('output-tab').setAttribute('aria-selected', String(output));
-  $('log-panel').hidden = output;
-  $('output-panel').hidden = !output;
-  scheduleViewSave();
-}
-$('log-tab').onclick = () => setConsoleTab(false);
-$('output-tab').onclick = () => setConsoleTab(true);
 function setConsoleCollapsed(collapsed) {
   $('console').classList.toggle('collapsed', collapsed);
   const toggle = $('console-toggle');
@@ -1176,37 +1217,13 @@ $('clear-log').onclick = () => {
 document.addEventListener('open-task-log', event => {
   $('workflow-tab').click();
   if ($('console').classList.contains('collapsed')) $('console-toggle').click();
-  setConsoleTab(false);
   followTaskLog(event.detail);
 });
 
-function updateOutput() {
-  let output = `${index.get(selected).title}尚无运行输出。`;
-  if (selected === 'probe_input' && runResult?.phase === 'download') output = runResult.message;
-  else if (runResult?.node_states?.[selected] === 'no_output') output = ['b_environment', 'mix_background'].includes(selected)
-    ? '背景处理未生效，本次继续使用纯中文配音。请查看后端日志中的模型或混音错误。'
-    : '本节点未生成产物，工作流继续运行。详情见后端日志。';
-  else if (selected === 'b_environment' && runResult?.completed_nodes?.includes(selected)) output = '已完成本地背景分离与非语言事件检查，发布 audio/environment.wav 和 environment.source.json；与原视频、台词时间轴绑定。';
-  else if (selected === 'mix_background' && runResult?.completed_nodes?.includes(selected)) output = '已混合背景与中文配音，发布 audio/mixed.wav 和 mixed.mix.json；合成节点会验证并使用混合音轨。';
-  else if (selected === 'asr_diarize' && runResult?.english_srt_ready) output = '已保存英文字幕中间产物 english.srt。';
-  else if (selected === 'asr_diarize' && runResult?.english_segments_ready) output = '英文分段已就绪。';
-  else if (selected === 'subtitle_cover' && runResult?.completed_nodes?.includes(selected)) {
-    output = '烧录字幕 subtitles/burnin.ass 已生成。';
-    if (runResult.subtitle_srt_ready) output += '原文、译文和双语 SRT 已保存在同一目录。';
-  }
-  else if (selected === 'subtitle_cover' && runResult?.subtitle_srt_ready) {
-    output = '原文、译文和双语 SRT 已生成，等待烧录字幕 burnin.ass。';
-  }
-  else if (runResult?.node === selected || (selected === 'compose_video' && runResult?.state === 'complete')) output = runResult.message;
-  else if (runResult?.completed_nodes?.includes(selected)) output = '节点已完成。';
-  const panel = $('console-output');
-  panel.textContent = output;
-  if (runResult?.final_video_ready && runResult.jobId) {
-    const download = el('a', '', '下载成片 MP4');
-    download.href = `/api/workflow-runs/${runResult.jobId}/final-video`;
-    panel.append(document.createElement('br'), download);
-  }
-}
+document.addEventListener('task-queue-cleared', event => {
+  const { jobId } = getReviewView();
+  if (jobId && !event.detail.includes(jobId)) setPreviewInput(null);
+});
 
 $('workflow-video').onchange = event => {
   const file = event.target.files[0];
@@ -1239,7 +1256,6 @@ function showRunResult(status) {
     failed: '工作流执行失败', complete: '工作流已完成' };
   runStatus.textContent = status.state === 'running' && status.phase === 'download' ? '正在下载原视频…' : labels[status.state];
   updateLogNotice();
-  updateOutput();
   draw();
 }
 
@@ -1322,7 +1338,6 @@ $('run').onclick = async () => {
   setRunLock(true);
   void refreshBackendModes();
   setConsoleCollapsed(false);
-  setConsoleTab(false);
   followTaskLog(null);
   const isUrl = Boolean(youtubeUrl.trim());
   const isJson = isUrl;
@@ -1381,7 +1396,6 @@ function restoreView(view) {
   camera = view.camera;
   selected = view.selected;
   setConsoleCollapsed(view.consoleCollapsed);
-  setConsoleTab(view.consoleTab === 'output');
   restoreReviewView(view.review, inputVideo);
 }
 
@@ -1390,6 +1404,10 @@ async function restoreRunStatus(jobId) {
   try {
     const status = await workflowResponse(await fetch(`/api/workflow-runs/${jobId}`));
     if (!runResult && getReviewView().jobId === jobId) {
+      if (status.queue_cleared) {
+        setPreviewInput(null);
+        return;
+      }
       showRunResult({ ...status, jobId });
       if (status.state === 'running') {
         setRunLock(true);
@@ -1421,7 +1439,6 @@ for (const id of ['workspace-views', 'canvas-tools', 'workspace-actions']) $(id)
 restoreView(layout?.view ?? validateView(null));
 rebuild();
 syncHistory();
-updateOutput();
 if (!layout) {
   if (narrowScreen.matches) focusNode();
   else fit();

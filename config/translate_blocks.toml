@@ -1,7 +1,7 @@
 # 可选风格：通用、音乐行业、影视、新闻、科学与技术、文化与历史。
-style = "通用"
 
-tone = "口语自然"
+style = "科学与技术"
+tone = "正式严谨"
 [terminology]
 # 开启后，entries 在当前任务术语表上追加术语，同名条目优先使用配置值。
 enabled = false

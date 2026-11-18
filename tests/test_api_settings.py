@@ -90,6 +90,31 @@ def test_custom_region_roundtrips_without_model_call(files):
     assert dotenv_values(env)['DASHSCOPE_REGION'] == 'us-east-1'
 
 
+def test_speech_probe_uses_new_region_and_does_not_save_key(files, monkeypatch):
+    from unittest.mock import Mock
+    from api_settings import test_speech_connection
+    from nodes import tts_align
+
+    env, _ = files
+    env.write_text('DASHSCOPE_REGION="cn-beijing"\nDASHSCOPE_API_KEY="beijing-fixture"\n')
+    original = env.read_bytes()
+    connection = Mock()
+    connect = Mock(return_value=connection)
+    monkeypatch.setattr(tts_align, "connect_tts_socket", connect)
+    fields = {"region": "ap-southeast-1", "workspace": "llm-test", "api_key": ""}
+
+    with pytest.raises(ValueError, match="更换地域"):
+        test_speech_connection(env, fields)
+    test_speech_connection(env, {**fields, "api_key": "singapore-fixture"})
+    connect.assert_called_once_with(
+        "wss://llm-test.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference",
+        {"Authorization": "Bearer singapore-fixture", "X-DashScope-Workspace": "llm-test"},
+        read_timeout=10,
+    )
+    connection.close.assert_called_once()
+    assert env.read_bytes() == original
+
+
 def test_http_protection_and_no_echo(files):
     env, tts = files
     server = WorkflowServer(0)

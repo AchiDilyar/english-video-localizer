@@ -81,7 +81,7 @@ def test_url_submission_uses_standard_cli_and_reports_download(server, monkeypat
     deadline = monotonic() + 5
     while server.worker_lock.locked() and monotonic() < deadline:
         sleep(0.01)
-    job = server.jobs / job_id
+    job = server.find_run(job_id)
     metadata = json.loads((job / "web-run.json").read_text(encoding="utf-8"))
     assert metadata["source_url"] == "https://www.youtube.com/watch?v=jNQXAC9IVRw"
     assert seen and seen[0][1:4] == ["-u", "-m", "cli"]
@@ -195,8 +195,10 @@ def test_custom_output_exports_video_and_opens_export_folder(server, tmp_path, m
     deadline = monotonic() + 5
     while server.worker_lock.locked() and monotonic() < deadline:
         sleep(0.01)
-    job = server.jobs / job_id
-    exported = destination / job_id / "final.mp4"
+    job = server.find_run(job_id)
+    assert job.name.endswith(" test") and job.name != job_id
+    assert server.list_runs(0)["jobs"][0]["id"] == job_id
+    exported = destination / job.name / "test[localized_final].mp4"
     assert exported.read_bytes() == (job / artifact).read_bytes() == b"rendered-video"
     assert server.read_run_status(job)["final_video_ready"]
 

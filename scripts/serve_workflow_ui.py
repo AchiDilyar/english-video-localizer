@@ -8,13 +8,14 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from datetime import datetime
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import chain
 from pathlib import Path
 from threading import Lock, Thread
 from time import time
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from uuid import uuid4
 
 from graph.registry import NODE_NAMES
@@ -26,7 +27,7 @@ from utils.artifacts import ARTIFACT_SPECS
 from workflow_modes import ConfigChanged, mode_snapshot, save_modes
 from workflow_settings import OPTIONS, read_settings, save_settings, workflow_schema
 from api_settings import snapshot as api_snapshot, save as save_api_settings
-from api_settings import read_saved_key, test_translation_connection
+from api_settings import read_saved_key, test_speech_connection, test_translation_connection
 import model_settings
 from nodes.translate_blocks._deepseek import DeepSeekError
 from dotenv import dotenv_values
@@ -111,19 +112,27 @@ def artifact_ready(job: Path, name: str) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
 
-def export_final_video(job: Path, directory: Path) -> Path:
+def video_stem(filename: str) -> str:
+    name = filename[:-4] if filename.lower().endswith(".mp4") else filename
+    name = re.sub(r'[<>:"/\\|?*]', "_", "".join(c for c in name if c.isprintable()))
+    return name.encode("utf-8")[:160].decode("utf-8", errors="ignore").strip(" .") or "视频"
+
+
+def export_final_video(job: Path, directory: Path, filename: str) -> Path:
     source = job / ARTIFACT_SPECS["final_video"].path
     folder = directory / job.name
-    if folder == job.resolve():
-        return source
-    folder.mkdir()
+    target = folder / f"{video_stem(filename)}[localized_final].mp4"
+    same_folder = folder == job.resolve()
+    if not same_folder:
+        folder.mkdir()
     pending = folder / ".final.mp4.partial"
     try:
         shutil.copyfile(source, pending)
-        return pending.replace(folder / source.name)
+        return pending.replace(target)
     except OSError:
         pending.unlink(missing_ok=True)
-        folder.rmdir()
+        if not same_folder:
+            folder.rmdir()
         raise
 
 
@@ -194,6 +203,7 @@ class WorkflowServer(ThreadingHTTPServer):
     def read_run_status(self, job: Path) -> dict:
         status_file = job / "web-status.json"
         status = json.loads(status_file.read_text(encoding="utf-8"))
+        status["queue_cleared"] = (job / "queue-cleared").exists()
         metadata_path = job / "web-run.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
         status["started_at"] = status.get("started_at") or metadata.get("created_at")
@@ -241,11 +251,20 @@ class WorkflowServer(ThreadingHTTPServer):
 
     def find_run(self, job_id: str) -> Path:
         job = self.jobs / job_id
-        return job if job.exists() else self.jobs / "webui" / job_id
+        legacy = self.jobs / "webui" / job_id
+        if job.exists() or legacy.exists():
+            return job if job.exists() else legacy
+        for metadata in self.jobs.glob("*/web-run.json"):
+            try:
+                if json.loads(metadata.read_text(encoding="utf-8")).get("job_id") == job_id:
+                    return metadata.parent
+            except (OSError, ValueError, AttributeError):
+                continue
+        return legacy
 
     def visible_runs(self):
         for job in chain(self.jobs.glob("*"), (self.jobs / "webui").glob("*")):
-            if not JOB_ID.fullmatch(job.name) or (job / "queue-cleared").exists():
+            if (job / "queue-cleared").exists():
                 continue
             if job.parent != self.jobs and self.find_run(job.name) != job:
                 continue
@@ -253,7 +272,7 @@ class WorkflowServer(ThreadingHTTPServer):
                 if not (job / "web-status.json").is_file():
                     continue
                 meta = json.loads((job / "web-run.json").read_text(encoding="utf-8"))
-                if not isinstance(meta, dict):
+                if not isinstance(meta, dict) or not JOB_ID.fullmatch(str(meta.get("job_id", job.name))):
                     continue
                 timestamp = (job / "web-run.json").stat().st_mtime
             except (OSError, ValueError):
@@ -270,7 +289,7 @@ class WorkflowServer(ThreadingHTTPServer):
             except (OSError, ValueError, KeyError, TypeError):
                 continue
             result.append({
-                "id": job.name,
+                "id": meta.get("job_id", job.name),
                 "filename": meta.get("filename") or "本地视频",
                 "created_at": meta.get("created_at", timestamp),
                 "state": status["state"],
@@ -308,6 +327,8 @@ class WorkflowServer(ThreadingHTTPServer):
                 adopt_existing_jobs(self.jobs, self.sources)
                 source, receipt = acquire_youtube(metadata["source_url"], self.sources)
                 metadata["source_video"] = str(source)
+                if isinstance(receipt.get("title"), str) and receipt["title"].strip():
+                    metadata["filename"] = receipt["title"]
                 (job / "web-run.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 (job / "logs/input-download.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -331,7 +352,7 @@ class WorkflowServer(ThreadingHTTPServer):
                 directory = metadata.get("output_directory")
                 if directory:
                     try:
-                        exported = export_final_video(job, Path(directory))
+                        exported = export_final_video(job, Path(directory), metadata.get("filename") or "视频")
                     except OSError:
                         write_status(job, state="complete",
                                      message="成片已保存在任务目录，自选目录导出失败，请检查目录权限和磁盘空间。")
@@ -409,7 +430,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content[:LOG_CHUNK_BYTES])
 
-    def send_video(self, video: Path, *, download: bool = False) -> None:
+    def send_video(self, video: Path, *, download: bool = False, filename: str = "final.mp4") -> None:
         if not video.is_file() or not video.stat().st_size:
             self.send_error(404)
             return
@@ -438,7 +459,7 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "video/mp4")
             self.send_header("Accept-Ranges", "bytes")
             if download:
-                self.send_header("Content-Disposition", 'attachment; filename="final.mp4"')
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(filename)}")
             self.send_header("Content-Length", str(remaining))
             self.send_header("Cache-Control", "private, no-store")
             if requested:
@@ -632,8 +653,11 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             if not self.server.read_run_status(job)["final_video_ready"]:
                 self.send_json({"message": "该任务尚无成片。"}, 404)
                 return
+            metadata = job / "web-run.json"
+            filename = json.loads(metadata.read_text(encoding="utf-8")).get("filename") if metadata.is_file() else None
             self.send_video(job / ARTIFACT_SPECS["final_video"].path,
-                            download=parse_qs(request.query).get("download") != ["0"])
+                            download=parse_qs(request.query).get("download") != ["0"],
+                            filename=f"{video_stem(filename or '视频')}[localized_final].mp4")
             return
         if match[3]:
             try:
@@ -743,6 +767,10 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             if self.local_request():
                 self.test_translation_api()
             return
+        if self.path == "/api/api-settings/test-speech":
+            if self.local_request():
+                self.test_speech_api()
+            return
         if self.path != "/api/workflow-runs":
             self.send_error(404)
             return
@@ -769,6 +797,32 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_json({"message": "无法打开目录选择器，请手动填写输出目录。"}, 503)
             return
         self.send_json({"directory": result.stdout.rstrip("\n") if result.returncode == 0 else None})
+
+    def test_speech_api(self) -> None:
+        if self.headers.get("Origin") != f"http://{self.headers.get('Host')}":
+            self.send_json({"message": "请从本机工作台测试配音 API。"}, 403)
+            return
+        if self.headers.get_content_type() != "application/json":
+            self.send_json({"message": "测试请求必须使用 JSON。"}, 415)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 16384:
+                raise ValueError
+            payload = json.loads(self.rfile.read(length))
+        except ValueError:
+            self.send_json({"message": "测试请求无效。"}, 400)
+            return
+        try:
+            test_speech_connection(self.server.env_path, payload)
+        except ValueError as error:
+            self.send_json({"message": str(error)}, 400)
+        except RuntimeError as error:
+            self.send_json({"message": str(error)}, 422)
+        except OSError:
+            self.send_json({"message": "无法读取本机配音 API 配置。"}, 503)
+        else:
+            self.send_json({"message": "WebSocket 连接和认证成功。未发起语音合成。"})
 
     def test_translation_api(self) -> None:
         if self.headers.get_content_type() != "application/json":
@@ -848,7 +902,14 @@ class WorkflowHandler(BaseHTTPRequestHandler):
             self.send_json({"message": "本机已有工作流任务在运行，请等它完成。"}, 409)
             return
 
-        job = self.server.jobs / uuid4().hex
+        job_id = uuid4().hex
+        filename = ("YouTube · " + url.rsplit("=", 1)[-1] if url else
+                    selected_source.name if selected_source else unquote(self.headers.get("X-Video-Name", "")[:4096]))
+        filename = re.split(r"[/\\]", filename)[-1]
+        filename = "".join(character for character in filename if character.isprintable())[:180]
+        stamp = datetime.fromtimestamp(request_started).strftime("%Y-%m-%d_%H%M%S_%f")
+        job = self.server.jobs / f"{stamp} {video_stem(filename)}"
+        created = False
         try:
             mock = tomllib.loads(self.server.mock_config.read_text(encoding="utf-8"))
             tts = tomllib.loads((self.server.config_dir / "tts.toml").read_text(encoding="utf-8"))
@@ -857,15 +918,12 @@ class WorkflowHandler(BaseHTTPRequestHandler):
                 self.send_json({"message": "原声复刻模式需要提供说话人授权。"}, 400)
                 return
             job.mkdir(parents=True, exist_ok=False)
+            created = True
             source_video = selected_source
             if url is None and selected_source is None:
                 source_video = save_job_input(self.rfile, size, job, self.server.sources / "uploads")
-            filename = ("YouTube · " + url.rsplit("=", 1)[-1] if url else
-                        selected_source.name if selected_source else unquote(self.headers.get("X-Video-Name", "")[:4096]))
-            filename = re.split(r"[/\\]", filename)[-1]
-            filename = "".join(character for character in filename if character.isprintable())[:180]
             (job / "web-run.json").write_text(
-                json.dumps({"filename": filename, "created_at": request_started, "source_url": url,
+                json.dumps({"job_id": job_id, "filename": filename, "created_at": request_started, "source_url": url,
                             "source_video": str(source_video) if source_video else None,
                             "authorize_voice_clone": authorize_voice_clone,
                             "output_directory": output_directory},
@@ -877,12 +935,13 @@ class WorkflowHandler(BaseHTTPRequestHandler):
                          message="正在下载原视频，完成后自动翻译与配音。" if url else "正在执行后端工作流。")
             Thread(target=self.server.run_workflow, args=(job,), daemon=True).start()
         except (OSError, RuntimeError, ValueError):
-            shutil.rmtree(job, ignore_errors=True)
+            if created:
+                shutil.rmtree(job, ignore_errors=True)
             self.server.active_job = None
             self.server.worker_lock.release()
             self.send_json({"message": "视频读取中断或本机无法写入任务目录。"}, 400)
             return
-        self.send_json({"job_id": job.name}, 202)
+        self.send_json({"job_id": job_id}, 202)
 
 
 def main() -> None:
