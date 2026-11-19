@@ -347,7 +347,7 @@ def synthesize_clip(
     旧版 `dashscope.audio.tts_v2.SpeechSynthesizer` 在 SDK 中已归入 `legacy_1x`。
 
     环境变量：
-    - `DASHSCOPE_API_KEY`：必需，见 `.env.example`
+    - `DASHSCOPE_API_KEY`：必需，从本机环境变量或 `.env` 加载
     - `DASHSCOPE_WORKSPACE`：业务空间 ID，仅子业务空间或使用专属域名时需要
     - `DASHSCOPE_REGION`：默认 `cn-beijing`；API Key 与地域绑定，不可跨地域混用
 

@@ -11,7 +11,7 @@ uv run --locked python scripts/check_environment.py
 
 如需把虚拟环境放在仓库外，先设置 `UV_PROJECT_ENVIRONMENT` 指向本机可写的绝对路径，再运行同步和自检命令。同一个终端中执行后续的 `uv run` 时沿用此设置。
 
-B 和 D 接入真实转写、说话人区分和语音 API 时，可用 `uv sync --locked --extra speech` 安装额外依赖。团队在开始接真实模型时，按需把 `.env.example` 复制成 `.env` 并配置本机凭据。D1–D3 的模拟模块与环境自检可以先用无密钥环境开发。
+B 和 D 接入真实转写、说话人区分和语音 API 时，可用 `uv sync --locked --extra speech` 安装额外依赖。团队在开始接真实模型时，按需在仓库根目录创建 `.env` 并配置本机凭据，也可以通过工作台的「API 设置」保存。D1–D3 的模拟模块与环境自检可以先用无密钥环境开发。
 
 每个模块先用小样本开发，并把接口变化、验证命令、结果和待联调事项写到对应的成员记录。记录里统一使用 A–G 代号。 [成员工作记录](roles/README.md)
 
@@ -46,7 +46,7 @@ uv run --locked python -m video_localizer.translation_demo --graph
 
 ## DeepSeek 接入
 
-在 DeepSeek 开放平台创建 API Key，将 `.env.example` 复制到本机 `.env`，填入 `DEEPSEEK_API_KEY`。翻译示例默认使用 `deepseek-flash`，通过 `DEEPSEEK_MODEL` 可显式指定其他模型。 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) · [DeepSeek JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)
+在 DeepSeek 开放平台创建 API Key，在仓库根目录的本机 `.env` 中填写 `DEEPSEEK_API_KEY`。翻译示例默认使用 `deepseek-flash`，通过 `DEEPSEEK_MODEL` 可显式指定其他模型。 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) · [DeepSeek JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)
 
 ```bash
 uv run --locked python -m video_localizer.translation_demo --live
