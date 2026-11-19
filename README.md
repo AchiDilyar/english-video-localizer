@@ -1,249 +1,184 @@
 # 基于多智能体协作的英文视频本地化系统
 
-七人课程项目，使用 **LangGraph** 协调英文视频转写、翻译审校、中文配音和双语字幕制作。输入本地视频或单条YouTube链接，目标是输出带中文配音、双语字幕的视频，并保留结构化结果供检查和对接。
+把英文视频转成**带普通话配音和中英双语字幕的 MP4**。可以提交本地视频、单条 YouTube 链接，或者复用已经下载或上传的素材。运行后可以在浏览器里对照原片与成片、检查翻译各阶段的字幕，也可以取出 SRT 和结构化中间产物。
 
-媒体探测、语音识别、音轨处理和压制由工具完成；理解、翻译、审校和配音稿返工由大模型角色承担，不将每个媒体工具都称作独立智能体。
+项目来自七人课程小组。LangGraph 负责调度，翻译、审校与定向返工由语言模型完成，语音识别、时间对齐、音轨处理与字幕压制由各自的模型或媒体工具完成。
 
-**当前状态（2026-11-17）：** 已接入真实节点，并完成约35分钟双人对谈的本地实验。该实验B/C复用同源真实结果，D/E重新运行，不代表所有环节重新全量推理，也不代表生产、GPU和全部慢测已验收。
+[快速开始](#快速开始) · [工作流](#工作流) · [配置](#配置) · [任务文件](#任务文件) · [测试与实验](#测试与实验) · [常见问题](#常见问题)
 
-**2026-11-18 更新：** 配音时间窗、返工耗尽和音频切分统一由 `project/nodes/dubbing_timing.py` 管理。当前最多8轮，耗尽后直接采用最后有效稿、停止D语义审查，保持视频长度并允许超速；字幕模型建议失败时回退本地单行分页。已完成120秒、24组既有语音的F主图缓存重放，产生42屏双语字幕，0新增收费调用。已保留F最新CLI入口及进度记录调整，详细策略和复现方式见 [配音统一说明](docs/nodes/tts_align/README.md)。
+## 工作台
 
-**本轮更新：** 已上传 WebUI 原片/成片预览切换、密钥不回显的 API 设置（地域可填写）、原片共享复用、授权后的自动音色准备、本地模型检查，以及 B/E 真实背景分离与混音。完整代码改动见 [2d2e648（52个文件）](https://github.com/AchiDilyar/english-video-localizer/commit/2d2e648)，使用与验证说明见 [WebUI 文档](docs/webui.md)。后续合并提交同时保留了团队 PPT 更新，不能只凭最后一次合并的文件列表判断代码是否已上传。个人密钥、接口配置和音色账户记录仅留本机。
+![本地工作台实拍，展示十一节点画布、任务队列入口和运行日志](assets/readme/workbench.png)
 
-## 1. 功能与流程
+工作台展示实际运行的 11 个节点。左侧按步骤定位节点，画布展示依赖关系，任务队列和运行日志用于查看每次译制的进度。打开「成片预览」后，可以按时间戳对照英文原文、首次翻译和审校结果。成片就绪后可以切换原片与成片，或直接下载 MP4。
 
-| 功能 | 当前支持情况 |
-|---|---|
-| 素材入口 | 本地视频；yt-dlp下载单条YouTube公开视频 |
-| 转写与说话人 | 本地faster-whisper及Community-1，需预先准备权重和访问权限 |
-| 翻译与审校 | DeepSeek接口、术语/风格配置、建议字数预算和定向返工 |
-| 中文配音 | CosyVoice v3 flash；系统音色或预先授权登记的原声复刻音色 |
-| 时长适配 | 按实际音频测量，最多8轮局部改稿；常规0.95–1.35倍，轮数耗尽后直接采用最后有效返工稿、不再进行D语义审查，保持原视频时长并允许超1.35倍加速，另记回听警告，不裁语音句尾 |
-| 双语字幕 | 配音后生成；中文上、英文下居中，各一行；超宽只在显示阶段顺序分页 |
-| 背景音 | 主图 b_environment / mix_background 已启用真实处理；本地 Demucs 分离背景、AST 保守恢复非语言声音，再混入中文配音。需本地模型与 speech / sound-events 依赖，失败按增量规则回退纯配音 |
-| WebUI | 本地MP4、YouTube链接或已有素材输入；直接复用原片，显示11节点进度、日志；字幕预览可切换原片/成片，API设置支持密钥隐藏与可填写地域 |
+## 快速开始
 
-当前代码执行顺序：
+### 1. 安装
 
-```mermaid
-flowchart LR
-  P[probe_input] --> B[asr_diarize]
-  B --> BG[b_environment]
-  B --> C1[build_blocks] --> C2[translate_blocks] --> C3[review_blocks] --> R[repair_blocks] --> D[tts_align] --> E[subtitle_cover]
-  BG --> M[mix_background]
-  E --> M --> V[compose_video]
-```
+准备 **Python 3.11**、[uv](https://docs.astral.sh/uv/)、FFmpeg、ffprobe，以及支持简体中文的字体。FFmpeg 和 ffprobe 放入 PATH，Windows 也可放在仓库的 `.tools/ffmpeg/bin/`。下载 YouTube 时可能还需要可执行的 Node.js，可通过 `LOCALIZER_NODE_PATH` 指定。
 
-唯一运行主图为 `project/graph/builder.py`，拓扑以 [workflow.md 第4节](docs/design/workflow.md) 为准。背景链与翻译链并行，混音等待两条链。字幕等待最终音轨，避免使用配音返工前的旧稿。共享节点仍为 `state: GraphState -> dict`，字段以 `contracts/` 为准。增量缺失或失败时回退纯中文配音，未返回本次有效混音状态时不消费磁盘旧混音。
-
-### 主图设计：基础版节点 + 增量节点
-
-主图按“基础版节点 + 增量节点”组织：基础版节点承担主链路；增量节点用于后续增强，在完成“英文视频的字幕与配音”的基础上，提升输出视频的质量。增量节点始终注册并调度，不提供关闭开关。`graph/` 层对增量节点统一加代理：节点抛异常时记 `warning` 并返回空增量，基础版节点仍直接抛出、图终止。节点清单与产物表用“版本归属”列区分基础版/增量。在该设计下，增量节点失败不会拖垮基础版链路，增量返回空增量时基础版行为不变。具体规则见 `docs/design/architecture.md` 第 8 节。边界：代理只保证异常不外抛、不合并返回值，不回滚节点对 State 的原地修改或已写磁盘的半成品。这一设计虽然属于架构治理，但能体现多智能体协作的异常处理和调度思路。
-
-### mocks 模块
-
-`mocks/` 为各节点提供模拟实现：保证结构性正确、不保证结果正确，用占位数据让整条链路在无模型、无密钥时也能跑通；凡是结果可能不对的地方留下可 grep 的 warning，切到 mock 即接受结果不正确。
-
-## 2. 安装环境
-
-需要Python **3.11**、[uv](https://docs.astral.sh/uv/)、FFmpeg和ffprobe。后两者加入PATH，或在Windows放到`.tools/ffmpeg/bin/`。字幕需支持中文的字体。YouTube完整支持可能需要Node.js等JavaScript运行时；程序查找PATH上的Node，也可设置`LOCALIZER_NODE_PATH`。
-
-```powershell
+```bash
 git clone https://github.com/AchiDilyar/english-video-localizer.git
 cd english-video-localizer
-
-# 仅下载、打开界面或进行B的基础检查
-uv sync --locked --extra b-asr
-
-# 真实完整流程，包括说话人区分、配音和可选声音事件依赖
 uv sync --locked --extra b-asr --extra speech --extra tts --extra sound-events
 ```
 
-`speech`包含Community-1所需的PyTorch/pyannote，体积较大；只装`b-asr`不等于能运行真实说话人区分。默认CPU，CUDA需另验硬件和环境。[B环境说明](docs/nodes/asr_diarize/environment/README.md) · [开发环境](docs/development.md)
+如果只想查看工作台或使用下载入口，可以改用 `uv sync --locked --extra b-asr`。完整安装会拉取 PyTorch 和说话人识别等依赖，默认建议先在 CPU 环境验证。平台差异和 GPU 环境见 [语音识别环境说明](docs/nodes/asr_diarize/environment/README.md)。
 
-依赖声明在`pyproject.toml`、锁定在`uv.lock`。新增依赖使用`uv add`、`uv add --dev`或`uv add --optional <extra>`；不使用pip或手改锁文件。运行、测试统一用`uv run`。
+### 2. 打开工作台
 
-## 3. API、模型与音色准备
+从仓库根目录启动。以下命令使用已经安装的依赖组合。
 
-### API配置
-
-首次复制模板，**已有`.env`不要覆盖**：
-
-```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```bash
+uv run --no-sync python scripts/serve_workflow_ui.py
 ```
 
-在本机`.env`填写：
+打开 [本地工作台](http://127.0.0.1:8765/)。仅打开界面无需模型权重和服务密钥。端口占用时在启动命令末尾加 `--port 8766`。工作台监听本机回环地址。
 
-也可打开 WebUI 顶栏「API 设置」填写翻译接口地址、模型、密钥及配音地域、模型、业务空间、密钥。密钥不回显，留空保留，清除需单独勾选；只写本机配置，下次任务生效，运行中禁止修改。仓库仅提供空值/通用示例，不包含个人网关或账号资料。声音复刻另需在当前视频勾选授权，不能由 API 配置代替授权。
+### 3. 准备一次真实运行
 
-| 配置 | 用途 |
-|---|---|
-| `DEEPSEEK_API_KEY` | 默认HTTP通道的翻译、审校、音稿返工和可选语义分片 |
-| `DEEPSEEK_TRANSPORT=api` | 默认文本模型通道；模型名可通过`DEEPSEEK_MODEL`设置 |
-| `DEEPSEEK_BASE_URL` | 可选兼容网关地址；个人地址仅保存在本机，不写入代码 |
-| `DASHSCOPE_API_KEY` | 中文语音生成，不能用DeepSeek密钥代替 |
-| `DASHSCOPE_REGION=ap-southeast-1` | 当前实验使用新加坡地域，须与账号、音色一致 |
-| `DASHSCOPE_WORKSPACE` | 可选工作空间，以账号实际配置为准 |
+1. 按[本地模型](#本地模型)一节准备 Whisper 和说话人模型。
+2. 打开顶栏「API 设置」，填入 DeepSeek 兼容翻译接口和 DashScope 配音设置。两套服务分别需要有效凭据。
+3. 首次验证建议在本机的 `config/tts.toml` 里设置 `voice_mode = "system"`，并检查系统音色在所选地域可用。仓库配置默认是 `cloned`。如果使用原声复刻，先取得说话人授权，再为当前任务勾选授权。
+4. 在「视频输入」选择一段有权使用、音质清晰的英文 MP4、单条 YouTube 链接，或已经登记的素材。建议先用一段短片验证流程。
+5. 点击「运行」，在任务队列看进度。成功后，在「成片预览」查看结果，或下载成片。最终文件位于该任务的 `video/final.mp4`。
 
-真实翻译、审校、配音和首次音色创建**可能收费**。只下载视频或打开WebUI不会自动触发这些调用；启动真实节点需要对应凭据。程序不推断余额或实际账单，本地预算可通过`LOCALIZER_BUDGET_FILE`另行配置。
+### 命令行
 
-学校`school_bridge`是文件交换通道，需要授权平台工具/操作者处理请求，不是普通终端直接可用的学校API，也不等于自动续跑。密钥留在本机，不提交`.env`或音色账户记录。
+使用系统音色时，先按上文调整本机 TTS 配置。工作目录需先创建，建议每次使用新的空目录。下面是 macOS 或 Linux 示例，PowerShell 可用 `New-Item -ItemType Directory -Force jobs/local-demo` 创建工作目录。
+
+```bash
+mkdir -p jobs/local-demo
+uv run --no-sync run-input --work-dir jobs/local-demo --input "/绝对路径/英文视频.mp4"
+```
+
+`--input` 也接受一条 YouTube 视频链接，CLI 会先获取原片，再运行整条工作流。使用原声复刻模式且已取得授权时，为这次运行加 `--authorize-voice-clone`。只希望下载原片时，使用独立的下载命令：
+
+```bash
+uv run --no-sync download-video "https://www.youtube.com/watch?v=视频ID" --output-dir media/downloads
+```
+
+把 `视频ID` 换成实际视频 ID。同一链接优先复用已登记的原片。默认最高 720p、最长 2 小时、最大 2 GiB，单次下载时限 600 秒。详细参数见 [命令行说明](docs/cli/README.md)。
+
+## 工作流
+
+![英文语音识别后并行进行翻译审校与背景分离。配音、字幕和背景音汇合后生成成片。](assets/readme/workflow.svg)
+
+| 阶段 | 输入与结果 |
+| --- | --- |
+| 素材准备 | 探测视频和音轨，把源视频解析到共享素材路径 |
+| 英文理解 | faster-whisper 转写，Community-1 区分说话人。把带毫秒时间戳的分段组织成翻译块 |
+| 翻译与审校 | 根据上下文、术语表和风格生成译文，审校后对问题片段定向返工，并保留每阶段文本 |
+| 配音与时长适配 | CosyVoice 生成中文语音。按实际音频组时长比较时间窗，对超时组局部改稿，保留最终采用的音稿和测时记录 |
+| 字幕 | 基于最终配音时间轴生成英文、中文、双语 SRT 与烧录 ASS。超宽内容按显示需要分页，源文字和配音分组仍可在中间文件中核对 |
+| 背景与混音 | Demucs 分离背景，AST 尝试恢复合适的非语言事件。与配音混合后送入合成；增强链失效可回退纯配音 |
+| 成片交付 | FFmpeg 合成中文音轨并烧录字幕，输出 `video/final.mp4` |
+
+当前配音默认最多进行 **8 轮**时长返工，常规速度范围为 **0.95–1.35 倍**。用尽轮次后，采用最后有效稿，并可能超出常规加速范围，记录复听警告。该阶段跳过后续配音语义审查，需结合警告回听。
+
+[主图实现](project/graph/builder.py) · [工作流设计](docs/design/workflow.md) · [配音时长与失败策略](docs/nodes/tts_align/README.md) · [背景分离](docs/nodes/b_environment/README.md)
+
+## 配置
 
 ### 本地模型
 
-权重不随仓库分发，默认路径如下；可通过对应配置文件修改。
+权重需单独准备。路径相对于仓库根目录，可在各节点配置中调整。
 
-| 模型 | 默认路径 | 配置文件 |
-|---|---|---|
-| 英文Whisper | `models/faster-whisper-base.en` | `config/asr_diarize.toml` |
-| Community-1缓存 | `models/community-1-hf-cache` | `config/asr_diarize.toml` |
-| 最终中文音轨Whisper | `models/faster-whisper-small` | `config/subtitle_cover.toml` |
-| 背景Demucs | `models/background-demucs/torchaudio/models/hdemucs_high_trained.pt` | `config/b_environment.toml` |
-| 非语言事件AST | `models/ast-audioset/model.onnx` 和 `config.json` | `config/b_environment.toml` |
+| 用途 | 默认位置 | 配置 |
+| --- | --- | --- |
+| 英文转写 | `models/faster-whisper-base.en` | [转写](config/asr_diarize.toml) |
+| 说话人区分 | `models/community-1-hf-cache` | [转写](config/asr_diarize.toml) |
+| 最终中文音轨定位 | `models/faster-whisper-small` | [字幕](config/subtitle_cover.toml) |
+| 背景分离 | `models/background-demucs/torchaudio/models/hdemucs_high_trained.pt` | [背景增强](config/b_environment.toml) |
+| 非语言声音识别 | `models/ast-audioset/` 内的 `model.onnx` 与 `config.json` | [背景增强](config/b_environment.toml) |
 
-完成上面的完整`uv sync`后，可准备Whisper权重；以下`--no-sync`保持已安装的依赖组合：
+下载两套 Whisper 权重：
 
-```powershell
+```bash
 uv run --no-sync python -c "from faster_whisper.utils import download_model; download_model('base.en', output_dir='models/faster-whisper-base.en'); download_model('small', output_dir='models/faster-whisper-small')"
 ```
 
-Community-1需要本人登录Hugging Face并在[模型页面](https://huggingface.co/pyannote/speaker-diarization-community-1)取得访问权限，登录不等于获准访问。之后在本机终端运行：
+用自己的账号申请 [Community-1 模型访问权限](https://huggingface.co/pyannote/speaker-diarization-community-1)，然后登录并缓存权重：
 
-```powershell
+```bash
 uv run --no-sync hf auth login
 uv run --no-sync python -m nodes.asr_diarize.community1_worker --prepare-model --allow-model-download --cache-dir models/community-1-hf-cache
 ```
 
-凭据只在终端输入，不贴到聊天或提交仓库。准备模型需要网络；正常识别阶段读取本地权重。`community1_python`保持为空，沿用当前uv解释器，不直接指向历史Python环境。
+正常运行时使用本地模型。背景分离、事件检测是可回退的增强环节，可按[本地背景模型说明](docs/nodes/b_environment/README.md)另行准备。
 
-### 系统音色与原声复刻
+### 翻译、配音与音色
 
-`config/tts.toml`当前默认`voice_mode = "cloned"`，在本次任务获得授权后，配音节点可自动选取原声并创建 audio/voice_profiles.json；已有且音频/账号/模型/地域/人物时间轴匹配的记录可直接复用。
+建议用工作台「API 设置」写入本机配置，也可以手动在仓库根目录创建 `.env`。实际值按自己的账号、接口和地域填写。
 
-- 先验证流程时，可在本机临时设置`voice_mode = "system"`并选同地域可用的系统音色，避免把个人测试配置随意覆盖团队配置。
-- 复刻前需取得说话人的声音使用及参考原声上传授权，再按[D节点说明](docs/nodes/tts_align/README.md)和`nodes.voice_profiles.enroll_profiles`准备绑定记录。在 WebUI 视频输入勾选本次任务的原声上传与付费音色创建授权后，可自动完成；新素材会重置勾选。
-- 记录绑定源音轨摘要、模型和地域，不应直接复制其他视频或账号的记录。缺失或不匹配会明确报错。
+| 环境变量 | 用途 |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | 翻译、审校与文本返工 |
+| `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` | 使用兼容接口时指定服务地址和该网关提供的模型 |
+| `DEEPSEEK_TRANSPORT` | 一般用 `api`。`school_bridge` 依赖外部授权操作者处理文件交换 |
+| `DASHSCOPE_API_KEY` | 中文配音服务凭据 |
+| `DASHSCOPE_REGION` | 填账号实际使用的地域，并核对音色可用性 |
+| `DASHSCOPE_WORKSPACE` | 使用独立业务空间时按账号配置填写 |
 
-## 4. 运行方式
+工作台保存后仅显示配置状态。密钥仍以本机文件保存，请勿提交 `.env` 或把密钥贴到 Issue。真实翻译、配音和创建复刻音色可能产生费用。开启原声复刻时，参考原声会上传至配音服务；授权仅对所选视频的当次任务有效。
 
-### 只下载YouTube视频
+### 字幕与导出
 
-```powershell
-uv run --locked --extra b-asr download-video "https://www.youtube.com/watch?v=jNQXAC9IVRw" --output-dir media/downloads
+- [字幕样式目录](config/subtitle_styles.json) 定义字体、颜色、边距、描边与中英文排布，工作台和后端共用。
+- [字幕任务配置](config/subtitle_cover.toml) 选择样式、语言排布与分页等参数。
+- [合成配置](config/compose_video.toml) 管理输出分辨率与码率。工作台还可以选择成片导出位置。
+- [节点模式](config/mock.toml) 中 `false` 为真实，`true` 为模拟。模拟用于联调，质量评估应使用真实数据。
+- [翻译配置](config/translate_blocks.toml)、[建议口播字数](config/translation_timing.toml)、[配音配置](config/tts.toml) 与 [背景混音](config/mix_background.toml) 分别管理对应阶段。
+
+## 任务文件
+
+WebUI 每次提交创建 `jobs/日期_时间_微秒 视频标题/`，CLI 写入传入的 `--work-dir`。新上传或下载的原片通常独立保存在 `media/downloads/`，任务使用同一素材路径。队列中的「清空」只隐藏已结束记录，磁盘产物仍在。
+
+| 文件或目录 | 内容 |
+| --- | --- |
+| `segments/` | 英文分段、说话人和翻译块 |
+| `translated/` | 初译、审校、有效定向返工结果 |
+| `tts/` | 音频片段、`dubbing_script.json` 和返工测时 |
+| `audio/` | 源音轨、配音、可用时的背景和混音。复刻账号记录仅保存在本机 |
+| `subtitles/` | `english_segmented.srt`、`chinese.srt`、`bilingual.srt` 和 `burnin.ass` |
+| `video/final.mp4` | 最终成片 |
+| `logs/` | CLI 日志、WebUI 运行日志与节点进度 |
+
+删除任务目录会同时移除该次运行的日志、字幕和成片。移动或删除共享原片也会影响复用和原片预览。
+
+## 测试与实验
+
+在已经安装依赖的环境内执行快速测试：
+
+```bash
+uv run --no-sync pytest -m "not slow" -q
 ```
 
-原片直接保存在 media/downloads/<视频ID>/video.mp4，来源记录为该目录的 source.json。相同链接复用原文件。这条命令**不运行翻译或配音**，目录自动创建。默认最高720p、最多2小时、2GiB、下载时限600秒，只取单条视频，不批量下载列表。失效、登录/地区限制或DRM等情况不保证可用；下载成功不等于取得转载或复刻授权。
+- **本次快速回归**在没有个人 `.env` 的干净副本运行，664 项通过、2 项跳过、4 项未选，另有 11 个子测试通过。
+- **模拟与集成测试**覆盖输入校验、工作流依赖、并行进度、异常回退，以及用替身结果驱动 FFmpeg 生成真实 MP4 的链路。
+- **历史约 35 分钟双人对谈实验**复用了同源识别与翻译产物，重新执行配音与字幕，记录 300 组语音、559 屏双语字幕。该结果对应当时版本和该样片。[配音实验记录](docs/nodes/tts_align/README.md)
+- **时长策略重放**复用 120 秒样片的 24 组缓存语音，产出 42 屏双语字幕，没有新增收费调用。[重放说明](docs/nodes/tts_align/README.md)
+- 实际结果受原片清晰度、说话人重叠程度、语速和模型影响。背景分离可能残留原语言或漏掉与对白重叠的声音。配音窗口与字幕分页检查无法替代人工听审。项目目前交付整段重跑，未提供通用的跨进程断点恢复入口。
 
-### CLI真实工作流
+做样片或对比实验时，请记录运行版本、节点模式、素材来源与实际执行环节。模型、运行素材和临时产物目录默认由 Git 忽略。
 
-先准备模型、API和音色。每个任务使用新目录，直接传原视频绝对路径，无需复制：
+## 常见问题
 
-```powershell
-New-Item -ItemType Directory -Force jobs/local-demo
-uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events run-input --work-dir jobs/local-demo --input "C:/Videos/english.mp4" --authorize-voice-clone
-```
+| 现象 | 先检查什么 |
+| --- | --- |
+| 工作台无法打开 | 启动命令是否还在运行、是否访问了正确端口。切换代码版本后重启服务并刷新页面 |
+| YouTube 下载失败 | 链接是否指向单条可访问的视频，FFmpeg、Node.js 和网络是否就绪 |
+| Community-1 报 403 | 当前账号是否获准读取模型，本机是否已缓存权重 |
+| 配音接口超时或音色不可用 | 地域、业务空间、模型和音色是否匹配，先用工作台连接测试检查 |
+| 显示需要原声授权 | 获得说话人授权后在当前任务勾选，或选择合适地域内的系统音色 |
+| 有字幕却没有成片 | 查最后一个失败节点及运行日志，再检查 FFmpeg、中文字体和 `video/final.mp4` |
+| 配音过快或字幕错位 | 查看 `tts/` 中的时长告警和最终音稿，对照 `subtitles/` 时间戳并回听对应片段 |
 
-也可直接传YouTube链接，CLI先获取共享原片路径，再执行主图：
+## 开发与反馈
 
-```powershell
-New-Item -ItemType Directory -Force jobs/youtube-run
-uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events run-input --work-dir jobs/youtube-run --input "https://www.youtube.com/watch?v=jNQXAC9IVRw"
-```
-
-两条`run-input`都会继续运行真实节点，**不是只下载命令**。URL输入会复用已下载素材，不在任务中生成 input.mp4；处理输出目录仍需新建，重复使用已产出音轨/转写的目录也可能被拒绝。当前基础CLI不保证检查点续跑，重复启动不等于恢复本地实验脚本进度。
-
-### WebUI
-
-只查看界面：
-
-```powershell
-uv run --locked --extra b-asr python scripts/serve_workflow_ui.py
-```
-
-打开`http://127.0.0.1:8765/`。在「视频输入」切换到「YouTube 链接」，填入原片地址并点击「运行」，下载完成后自动进入翻译、配音、字幕和合成；也可继续上传本地MP4。若要实际运行完整流程，在完成全部准备后用完整依赖启动：
-
-```powershell
-uv run --locked --extra b-asr --extra speech --extra tts --extra sound-events python scripts/serve_workflow_ui.py
-```
-
-当前界面上传本地MP4；YouTube先通过下载命令获取，再上传文件。可查看队列、节点模式、配置、字幕和控制台。`config/mock.toml`决定真实/模拟节点，当前main为全真实；打开页面无需API key，不代表运行也无需配置。[WebUI详细说明](docs/webui.md)
-
-## 5. 配置与输出
-
-| 配置文件 | 主要作用 |
-|---|---|
-| `config/mock.toml` | 真实/模拟开关，`true`为模拟，`false`为真实 |
-| `config/asr_diarize.toml` | 英文模型、最长时长、说话人、CPU/CUDA及复核 |
-| `config/translate_blocks.toml` | 翻译风格与术语 |
-| `config/translation_timing.toml` | 建议字数预算，不能代替实际测时 |
-| `config/b_environment.toml` | 本地背景分离与非语言事件恢复；模型路径及CPU/CUDA |
-| `config/mix_background.toml` | 背景混音增益 |
-| `config/tts.toml` | 模型、音色、变速与返工策略 |
-| `config/subtitle_cover.toml` | 最终音轨字幕、双语位置、分片和严格单行 |
-| `config/compose_video.toml` | 输出分辨率与码率 |
-
-典型任务目录：
-
-```text
-jobs/local-demo/
-  input.mp4
-  audio/        # source.wav、dub.wav；voice_profiles.json为本机复刻配置
-  segments/     # segments.json、blocks.json
-  translated/   # 初译、审校；有效定向返工后才有repaired_blocks.json
-  tts/          # clips.json、逐组音频、最终实际音稿和时长记录
-  subtitles/    # 中英SRT、双语SRT、burnin.ass、对齐及分页警告
-  video/        # final.mp4：最终成片
-  logs/         # run.log；WebUI任务另有runner.log
-```
-
-最终配音文本以`tts/dubbing_script.json`为准，不把`TTSClip.text`标签当成每段音频逐字实录。英文不回译或改写，显示分页不改配音分组。背景/混音使用登记的独立音轨和可选状态回执，由 mock.toml 统一选择真实/模拟实现；缺失增量时维持纯配音。
-
-## 6. 测试、实验与限制
-
-- 最近合并快测：**528 passed、2 skipped、2 deselected、11 subtests passed**，跳过/未执行项不算通过。
-- 历史35分钟实验：300组新配音、559屏双语单行、0越界，实际0.95–1.35倍；B/C复用同源结果，D/E真实重跑。9组留白、29屏短显示需复听。
-- 自动检查不等于整片人工听音、原声相似度、说话人准确性、逐词对齐或口型验收。背景分离可能漏掉与对白重叠的笑声，也可能残留原语言混响。
-- 默认短稿策略为`error`，无法忠实适配时可能返工或报错；历史实验有警告继续是显式配置，不代表默认无限放慢或静默凑词。
-- 背景及混音产物已登记；真实分离质量、GPU、旧慢测SDK适配及其他辅助产物的规范化仍需后续验收。
-
-快测命令不调用真实付费API；真实说话人模型/慢测需另行启用对应依赖、权重与授权：
-
-```powershell
-uv run --locked --extra b-asr --extra tts --extra sound-events pytest -m "not slow" -q
-```
-
-35分钟[实验下载](https://github.com/AchiDilyar/english-video-localizer/releases/tag/experiment-long35-20261117)约922MB，包内只有**一份实验报告、原视频和最终成片**。中间文件、模型、音色账户记录和密钥不上传Git。
-
-## 7. 常见问题
-
-| 情况 | 先检查 |
-|---|---|
-| YouTube下载失败 | 视频是否仍可用、网络、yt-dlp锁定版本、Node/FFmpeg；视频失效不等于插件没装 |
-| 模型缺失或Community-1返回403 | 路径/缓存是否准备；当前账号是否真正获准访问模型 |
-| 缺API key或地域错误 | `.env`位置、独立的两类密钥，以及音色与新加坡地域是否匹配 |
-| `VOICE_CLONE_REQUIRED` | 源摘要、授权音色记录、模型和地域；普通验证可显式使用system模式 |
-| 配音长短不合适 | 查看`tts/`的测时和返工记录，不靠超速、丢字或裁句尾掩盖问题 |
-| `UNTIMED_UTTERANCES`、`UNRESOLVED_SPEAKER` | 先解决时间或说话人缺失，不把未知结果标成人工确认 |
-| 端口占用或旧界面 | 使用`--port 8766`等新端口，重启服务并刷新页面 |
-
-## 8. 目录与团队资料
-
-```text
-project/      # CLI、graph、contracts、nodes、mocks、utils
-config/       # 团队配置
-scripts/      # WebUI、辅助检查和运行报告
-web/          # 界面静态资源
-tests/        # 测试；tmp和_large不进Git
-docs/         # 设计、节点说明、协作与汇报资料
-models/       # 本地模型，不进Git
-jobs/         # 本地任务，不进Git
-```
-
-A负责整体方案与演讲，B素材和语音理解，C翻译审校，D配音时长，E字幕成片，F集成与公共接口，G负责PPT与展示材料。
-
-- [项目规划](docs/project-plan.md) · [开发环境](docs/development.md) · [团队分工](docs/roles/README.md)
-- [设计架构](docs/design/architecture.md) · [工作流](docs/design/workflow.md) · [数据流](docs/design/dataflow.md) · [协作约定](docs/design/collaboration.md)
-- [主图说明](docs/graph/README.md) · [CLI说明](docs/cli/README.md) · [B节点](docs/nodes/asr_diarize/README.md) · [D节点](docs/nodes/tts_align/README.md)
-
-协作时先同步main，保留其他成员工作；跨组接口、主图和正式设计由F协调。依赖、密钥与大文件遵循上述规则，实验结果、模型建议及人工验收结论分别记录。
+- 安装与开发约定见 [开发环境](docs/development.md)，操作与界面细节见 [工作台说明](docs/webui.md)。
+- [接口契约](docs/contracts/interfaces.md) 描述数据边界。[主图说明](docs/graph/README.md) 和 [协作约定](docs/design/collaboration.md) 解释节点关系与集成方式。
+- `project/` 包含命令行、节点和数据契约，`web/` 是浏览器界面，`scripts/` 提供工作台服务和检查工具，`tests/` 保存测试。
+- 提交 [问题反馈](https://github.com/AchiDilyar/english-video-localizer/issues) 时，可附运行入口、版本、操作系统、失败节点、脱敏日志和最小复现步骤。请先确认公开附件有分享权。
+- 课程小组的职责见 [协作分工](docs/roles/README.md)。测试媒体的来源和署名见 [素材说明](tests/data/asr_diarize/real_dialogue/README.md)。
